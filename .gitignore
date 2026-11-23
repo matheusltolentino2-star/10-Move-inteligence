@@ -1,0 +1,23 @@
+# config.js É versionado de propósito: um site estático sem build precisa que a
+# URL e a chave pública do Supabase cheguem ao navegador, e essa chave é
+# pública por definição. A proteção dos dados é o Row Level Security, não o
+# sigilo da chave. O que NUNCA pode entrar no repositório é a service_role key.
+config.local.js
+.env
+.env.*
+
+# Dependências e artefatos locais
+node_modules/
+.vercel/
+.DS_Store
+Thumbs.db
+*.log
+
+# Planilhas e bases reais não entram no repositório.
+# A plataforma lê os arquivos no navegador; eles não precisam estar aqui,
+# e versioná-los exporia dados pessoais de clientes.
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+*.tsv

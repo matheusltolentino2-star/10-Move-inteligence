@@ -1,0 +1,249 @@
+/* 10 Move Intelligence — Configurações e Acessos
+   Reúne fontes de dados, perfis de acesso e governança de privacidade. */
+window.MI = window.MI || {};
+MI.views = MI.views || {};
+
+(function (MI) {
+  'use strict';
+  const el = MI.el, U = MI.ui;
+
+  const S = { aba: 'dados', fonte: 'clientes' };
+
+  const PERFIS = [
+    {
+      id: 'smoov', nome: 'Administrador Smoov', curto: 'Smoov',
+      desc: 'Representante autorizado da Smoov, responsável pelos dados.',
+      pode: [
+        'Importar a base de clientes e a base de transações',
+        'Ver a pré-visualização das linhas e os registros individuais',
+        'Administrar o catálogo de produtos',
+        'Definir o limite de supressão (k)',
+        'Aprovar, um a um, os indicadores compartilhados com a 10 Move',
+        'Gerar relatórios completos do próprio recorte'
+      ],
+      naoPode: ['Nada é restrito neste perfil dentro da aplicação']
+    },
+    {
+      id: 'tenmove', nome: 'Equipe 10 Move', curto: '10 Move',
+      desc: 'Equipe de inteligência comercial da 10 Move.',
+      pode: [
+        'Ver os indicadores que a Smoov aprovou',
+        'Navegar pelos dashboards e aplicar filtros',
+        'Consultar o catálogo de produtos',
+        'Gerar relatórios apenas com o que foi liberado'
+      ],
+      naoPode: [
+        'Importar bases ou ver linhas individuais',
+        'Ver indicadores não aprovados',
+        'Editar o catálogo ou alterar o limite de supressão',
+        'Exportar microdados'
+      ]
+    },
+    {
+      id: 'tech', nome: 'Administrador técnico', curto: 'Técnico',
+      desc: 'Responsável pela operação do sistema, sem papel comercial.',
+      pode: [
+        'Ver a estrutura das bases, tipos de coluna e qualidade dos dados',
+        'Acompanhar o diagnóstico de ligação entre clientes, pedidos e catálogo',
+        'Ver os dashboards com supressão de grupos pequenos sempre ativa',
+        'Consultar o painel de risco de reidentificação'
+      ],
+      naoPode: [
+        'Ver registros individuais ou a pré-visualização da planilha',
+        'Importar bases ou exportar microdados',
+        'Aprovar indicadores para compartilhamento',
+        'Editar o catálogo'
+      ]
+    }
+  ];
+  MI.PERFIS = PERFIS;
+
+  MI.views.settings = {
+    title: 'Configurações e Acessos',
+    subtitle: 'Fontes de dados, perfis de acesso e governança',
+    icon: 'shield',
+
+    abrirAba: function (id, fonte) {
+      S.aba = id;
+      if (fonte) S.fonte = fonte;
+    },
+
+    render: function (root) {
+      const abas = [
+        { id: 'dados', label: 'Fontes de dados', icon: 'database' },
+        { id: 'acessos', label: 'Perfis de acesso', icon: 'users' },
+        { id: 'privacidade', label: 'Privacidade e compartilhamento', icon: 'shield' },
+        { id: 'publicacao', label: 'Publicação', icon: 'upload' }
+      ];
+      root.appendChild(el('div', { class: 'tabs' }, abas.map(function (t) {
+        return el('button', {
+          class: 'tab' + (S.aba === t.id ? ' is-on' : ''), type: 'button',
+          onclick: function () { S.aba = t.id; MI.app.rerender(); }
+        }, [el('span', { html: MI.icon(t.icon, 15) }), t.label]);
+      })));
+
+      if (S.aba === 'dados') return renderDados(root);
+      if (S.aba === 'acessos') return renderAcessos(root);
+      if (S.aba === 'publicacao') return renderPublicacao(root);
+      return MI.views.governance.render(root);
+    }
+  };
+
+  /* ================= Fontes de dados ================= */
+  function renderDados(root) {
+    const sub = [
+      { id: 'clientes', label: 'Base de clientes', icon: 'users' },
+      { id: 'transacoes', label: 'Base de transações', icon: 'spark' },
+      { id: 'catalogo', label: 'Catálogo de produtos', icon: 'grid' }
+    ];
+    root.appendChild(el('div', { style: 'display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px' }, sub.map(function (t) {
+      return el('button', {
+        class: 'chip' + (S.fonte === t.id ? ' is-on' : ''), type: 'button',
+        onclick: function () { S.fonte = t.id; MI.app.rerender(); }
+      }, [el('span', { html: MI.icon(t.icon, 14) }), t.label]);
+    })));
+
+    if (S.fonte === 'catalogo') {
+      root.appendChild(el('div', { class: 'grid' }, U.card({
+        span: 'c12', title: 'Catálogo de produtos',
+        sub: MI.catalog.items.length + ' produtos · ' + (MI.catalog.isDemo() ? 'catálogo demonstrativo fictício' : 'catálogo carregado'),
+        body: [
+          U.note(null, 'A importação e a administração do cardápio ficam na seção dedicada, com pré-visualização em cartões, filtros e editor.'),
+          el('div', { style: 'margin-top:12px' }, U.btn('Abrir Cardápio & Produtos', {
+            variant: 'accent', icon: 'grid', onClick: function () { MI.app.go('catalog'); }
+          }))
+        ]
+      })));
+      return;
+    }
+    MI.importUI.render(root, S.fonte);
+  }
+
+  /* ================= Perfis de acesso ================= */
+  function renderAcessos(root) {
+    const atual = MI.store.perspective;
+
+    root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('crit', [
+      el('strong', { text: 'Isto não é autenticação. ' }),
+      'Nesta versão a troca de perfil é uma preferência de interface, guardada neste navegador. ' +
+      'Qualquer pessoa com a página aberta pode alternar entre os três perfis. ' +
+      'Para uso real com dados da Smoov é obrigatório ter login de verdade e autorização verificada no servidor — ' +
+      'o que está preparado e descrito na aba Publicação.'
+    ])));
+
+    root.appendChild(U.section('Perfis previstos', 'O que cada um pode fazer na aplicação'));
+    root.appendChild(el('div', { class: 'grid' }, PERFIS.map(function (p) {
+      const ativo = atual === p.id;
+      return U.card({
+        span: 'c4',
+        title: p.nome,
+        sub: p.desc,
+        tools: [ativo ? el('span', { class: 'badge badge--ok', text: 'perfil ativo' }) : null].filter(Boolean),
+        body: [
+          el('div', { class: 'field__label', style: 'margin-bottom:6px', text: 'Pode' }),
+          el('ul', { style: 'margin:0 0 14px;padding-left:18px;font-size:12.5px;color:var(--muted);line-height:1.65' },
+            p.pode.map(function (x) { return el('li', { text: x }); })),
+          el('div', { class: 'field__label', style: 'margin-bottom:6px', text: 'Não pode' }),
+          el('ul', { style: 'margin:0;padding-left:18px;font-size:12.5px;color:var(--muted);line-height:1.65' },
+            p.naoPode.map(function (x) { return el('li', { text: x }); }))
+        ],
+        foot: ativo ? 'Você está navegando com este perfil.' : null
+      });
+    })));
+
+    root.appendChild(el('div', { class: 'grid' }, U.card({
+      span: 'c12', title: 'Trocar de perfil',
+      sub: 'Para conferir como cada público enxerga a plataforma',
+      body: el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, PERFIS.map(function (p) {
+        return U.btn(p.nome, {
+          variant: atual === p.id ? 'accent' : null,
+          onClick: function () { MI.store.setPerspective(p.id); MI.app.rerender(); }
+        });
+      }))
+    })));
+
+    /* matriz de permissões efetivamente aplicada no código */
+    root.appendChild(U.section('Matriz de permissões aplicada', 'Estas regras estão implementadas e valem agora'));
+    const regras = [
+      ['Importar base de clientes e transações', ['sim', 'não', 'não']],
+      ['Ver pré-visualização das linhas da planilha', ['sim', 'não', 'não']],
+      ['Editar o catálogo de produtos', ['sim', 'não', 'não']],
+      ['Ver indicadores não aprovados', ['sim', 'não', 'sim']],
+      ['Supressão de grupos pequenos sempre ativa', ['opcional', 'sim', 'sim']],
+      ['Definir o limite k e aprovar indicadores', ['sim', 'não', 'não']],
+      ['Exportar microdados', ['não', 'não', 'não']],
+      ['Exportar indicadores agregados', ['sim', 'sim', 'sim']]
+    ];
+    root.appendChild(el('div', { class: 'grid' }, U.card({
+      span: 'c12',
+      body: U.table(
+        [{ label: 'Ação' }].concat(PERFIS.map(function (p) { return { label: p.nome }; })),
+        regras.map(function (r) {
+          return {
+            cells: [{ v: r[0] }].concat(r[1].map(function (v) {
+              return { v: el('span', { class: 'badge badge--' + (v === 'sim' ? 'ok' : v === 'não' ? 'crit' : 'warn'), text: v }) };
+            }))
+          };
+        })
+      )
+    })));
+  }
+
+  /* ================= Publicação ================= */
+  function renderPublicacao(root) {
+    root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('info', [
+      el('strong', { text: 'Estado atual: aplicação estática, sem servidor. ' }),
+      'Tudo roda no navegador. Isso é o que garante que a planilha não sai da máquina, e é também o que impede ' +
+      'autenticação real. Abaixo está o que já está preparado e o que depende de uma ação sua.'
+    ])));
+
+    root.appendChild(U.section('O que já está pronto no repositório', 'Arquivos versionados junto com a aplicação'));
+    root.appendChild(el('div', { class: 'grid' }, [
+      U.card({
+        span: 'c6', title: 'Preparado e funcionando',
+        body: el('div', { class: 'findings' }, [
+          item('ok', 'Aplicação estática pronta para CDN', 'Sem build, sem dependência de servidor. Qualquer hospedagem de arquivos estáticos serve.'),
+          item('ok', 'vercel.json com cabeçalhos de segurança', 'CSP, HSTS, X-Frame-Options e Referrer-Policy já definidos no repositório.'),
+          item('ok', 'Esquema do Supabase com RLS', 'supabase/schema.sql cria organizações, membros, papéis e indicadores aprovados, com Row Level Security negando por padrão.'),
+          item('ok', 'Módulo de autenticação', 'assets/js/auth-supabase.js implementa login, sessão e carregamento de papel; fica inativo enquanto não houver chaves.'),
+          item('ok', 'Processamento local preservado', 'Mesmo publicada, a planilha continua sendo lida no navegador. Só agregados aprovados vão para o servidor.')
+        ])
+      }),
+      U.card({
+        span: 'c6', title: 'Depende de uma ação sua',
+        body: el('div', { class: 'findings' }, [
+          item('warn', 'Conectar a conta Vercel ou Supabase', 'Os conectores existem no catálogo do Claude mas não estão conectados nesta conversa. O da Vercel, mesmo conectado, só lê projetos — não faz deploy.'),
+          item('warn', 'Criar o projeto Supabase', 'Com o conector Supabase ativo, o projeto e o esquema podem ser criados daqui. Sem ele, é um projeto novo no painel e colar duas chaves.'),
+          item('warn', 'Publicar na Vercel', 'Importar este repositório na Vercel pelo painel, ou rodar o deploy com um token de conta.'),
+          item('crit', 'Autorização de custo', 'Nada foi contratado nem publicado. Os planos gratuitos de Vercel e Supabase atendem este volume, mas a decisão é sua.')
+        ])
+      })
+    ]));
+
+    root.appendChild(U.section('Caminho mais curto', 'Três passos, nenhum deles exige escrever código'));
+    root.appendChild(el('div', { class: 'grid' }, U.card({
+      span: 'c12',
+      body: U.table(
+        [{ label: 'Passo' }, { label: 'O que você faz' }, { label: 'O que fica pronto' }],
+        [
+          ['1', 'Conectar os conectores Vercel e Supabase em /mcp', 'Eu passo a enxergar projetos e posso criar o banco'],
+          ['2', 'Autorizar a criação do projeto Supabase (plano gratuito)', 'Banco, autenticação e RLS aplicados a partir do schema.sql'],
+          ['3', 'Importar o repositório na Vercel e colar as duas chaves públicas do Supabase', 'URL HTTPS pública, com login real e isolamento por organização'],
+          ['—', 'Enquanto isso', 'A aplicação já está publicada como Artifact, com link HTTPS que abre em qualquer dispositivo']
+        ].map(function (r) { return { cells: [{ v: r[0] }, { v: r[1] }, { v: r[2] }] }; })
+      ),
+      foot: 'Nenhuma destas etapas foi executada: não há conta conectada, projeto criado nem deploy feito.'
+    })));
+  }
+
+  function item(nivel, titulo, texto) {
+    return el('article', { class: 'finding', style: 'border-left-color:var(--' + (nivel === 'ok' ? 'ok' : nivel === 'crit' ? 'crit' : 'warn') + ')' }, [
+      el('div', { class: 'finding__top' }, [
+        el('span', { class: 'badge badge--' + nivel, text: nivel === 'ok' ? 'pronto' : nivel === 'crit' ? 'requer autorização' : 'requer ação' })
+      ]),
+      el('h4', { text: titulo }),
+      el('p', { text: texto })
+    ]);
+  }
+
+})(window.MI);
