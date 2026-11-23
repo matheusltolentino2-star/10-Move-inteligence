@@ -75,9 +75,9 @@ MI.views = MI.views || {};
         el('div', { class: 'pcard__cat', text: p.categoria + (p.subcategoria ? ' · ' + p.subcategoria : '') }),
         el('div', { class: 'pcard__name', text: p.nome }),
         el('div', { class: 'pcard__meta' }, [
-          p.tamanho ? p.tamanho : null,
-          p.tamanho && p.kcal != null ? ' · ' : null,
-          p.kcal != null ? MI.fmt.int(p.kcal) + ' kcal' : null,
+          [p.tamanho || null,
+          p.proteina != null ? MI.fmt.dec(p.proteina, 0) + ' g de proteína' : null,
+          p.kcal != null ? MI.fmt.int(p.kcal) + ' kcal' : null].filter(Boolean).join(' · '),
           p.ingredientes ? el('div', { style: 'margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: p.ingredientes, text: p.ingredientes }) : null,
           p.alergenicos ? el('div', { style: 'margin-top:4px;color:var(--warn)', text: 'Contém: ' + p.alergenicos }) : null
         ])
@@ -323,12 +323,30 @@ MI.views = MI.views || {};
 
     render: function (root) {
       /* aviso de origem do catálogo */
-      if (C.isDemo()) {
+      if (C.isOficial && C.isOficial()) {
+        root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('ok', [
+          el('strong', { text: 'Cardápio oficial da Smoov. ' }),
+          C.items.length + ' itens transcritos do cardápio enviado em 23/11/2026 — nomes, categorias, ' +
+          'preços por tamanho, ingredientes e gramas de proteína vêm da própria peça.'
+        ])));
         root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('warn', [
-          el('strong', { text: 'Catálogo demonstrativo fictício. ' }),
-          'Os ' + C.items.length + ' produtos abaixo foram inventados para demonstrar a plataforma. ' +
-          'Nenhum nome, preço ou informação nutricional foi atribuído à Smoov — não há cardápio real carregado. ' +
-          'Use “Importar cardápio” para carregar o catálogo verdadeiro.'
+          el('strong', { text: 'Três ressalvas sobre a transcrição. ' }),
+          '1) Os selos por produto (sem lactose, sem glúten, sem açúcar, vegano) ficaram em branco: a legenda ' +
+          'existe no rodapé da peça, mas na resolução recebida não dá para atribuir cada ícone ao produto certo, ' +
+          'e errar um selo desses é risco alimentar. ' +
+          '2) O campo de alergênicos foi deduzido da lista de ingredientes, não é a declaração oficial da Smoov. ' +
+          '3) Nenhum item declara calorias, então esse campo está vazio — não foi estimado.'
+        ])));
+        if (MI.SMOOV_REGRAS) {
+          root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note(null, [
+            el('strong', { text: 'Regras de montagem declaradas no cardápio: ' }),
+            MI.SMOOV_REGRAS.join(' ')
+          ])));
+        }
+      } else if (C.isDemo()) {
+        root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('warn', [
+          el('strong', { text: 'Catálogo demonstrativo. ' }),
+          'Os ' + C.items.length + ' produtos abaixo não são da Smoov.'
         ])));
       } else {
         root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('ok', [
@@ -490,8 +508,8 @@ MI.views = MI.views || {};
     }
     const headers = [
       { label: 'Produto' }, { label: 'Categoria' }, { label: 'Subcategoria' }, { label: 'Tamanho' },
-      { label: 'Preço', num: true }, { label: 'kcal', num: true }, { label: 'SKU' },
-      { label: 'Alergênicos' }, { label: 'Disponível' }
+      { label: 'Preço', num: true }, { label: 'Proteína (g)', num: true }, { label: 'SKU' },
+      { label: 'Ingredientes' }, { label: 'Alergênicos (derivado)' }, { label: 'Disponível' }
     ];
     if (podeEditar()) headers.push({ label: '' });
     host.appendChild(el('div', { class: 'grid' }, U.card({
@@ -500,8 +518,9 @@ MI.views = MI.views || {};
         const cells = [
           { v: p.nome }, { v: p.categoria }, { v: p.subcategoria || '—' }, { v: p.tamanho || '—' },
           { v: p.preco != null ? MI.fmt.money(p.preco) : '—', num: true },
-          { v: p.kcal != null ? MI.fmt.int(p.kcal) : '—', num: true },
+          { v: p.proteina != null ? MI.fmt.dec(p.proteina, 0) : '—', num: true },
           { v: p.sku || '—' },
+          { v: p.ingredientes || '—', title: p.ingredientes },
           { v: p.alergenicos || '—' },
           { v: el('span', { class: 'badge badge--' + (p.disponivel ? 'ok' : 'crit'), text: p.disponivel ? 'sim' : 'não' }) }
         ];

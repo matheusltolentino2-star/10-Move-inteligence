@@ -275,32 +275,31 @@ window.MI = window.MI || {};
     const produtos = cat.items.filter(function (p) { return p.preco != null; });
     if (!produtos.length) return null;
 
-    /* Afinidades por contexto — é o que as análises devem redescobrir */
+    /* Afinidades por contexto, calibradas para as categorias reais do cardápio.
+       São padrões PLAUSÍVEIS inventados para a base demonstrativa — servem para
+       o motor de análise ter sinal a descobrir, não para descrever o consumo
+       real da Smoov, que só a base de transações verdadeira dirá. */
     const pesoCategoria = function (cat, faixa, hora, dow, regiao) {
       let w = 1;
-      if (cat === 'Cafés') {
-        w *= hora <= 10 ? 3.1 : hora <= 14 ? 1.1 : 0.45;
-        if (faixa === '45–54' || faixa === '55–64' || faixa === '65+') w *= 1.5;
-        if (regiao === 'Sul') w *= 1.35;
-      } else if (cat === 'Açaí') {
-        w *= hora >= 14 && hora <= 20 ? 2.5 : 0.55;
-        if (faixa === '16–24') w *= 1.9; else if (faixa === '25–34') w *= 1.3;
-        if (dow === 0 || dow === 6) w *= 1.35;
-        if (regiao === 'Norte' || regiao === 'Nordeste') w *= 1.4;
-      } else if (cat === 'Smoothies') {
-        w *= hora >= 7 && hora <= 11 ? 1.8 : hora >= 17 && hora <= 21 ? 1.6 : 1;
-        if (faixa === '25–34' || faixa === '35–44') w *= 1.45;
-      } else if (cat === 'Sucos') {
-        w *= hora >= 11 && hora <= 16 ? 1.7 : 0.9;
-        if (regiao === 'Nordeste') w *= 1.6;
-        if (faixa === '45–54' || faixa === '55–64' || faixa === '65+') w *= 1.3;
+      if (cat === 'Fruit Smoovs') {
+        w *= (hora >= 7 && hora <= 11) ? 1.9 : (hora >= 12 && hora <= 16) ? 1.5 : 0.8;
+        if (regiao === 'Norte' || regiao === 'Nordeste') w *= 1.45;
+        if (faixa === '45–54' || faixa === '55–64' || faixa === '65+') w *= 1.25;
+      } else if (cat === 'Protein Smoovs') {
+        w *= (hora >= 6 && hora <= 9) ? 2.2 : (hora >= 17 && hora <= 21) ? 2.0 : 0.85;
+        if (faixa === '25–34' || faixa === '35–44') w *= 1.5;
+        if (dow >= 1 && dow <= 5) w *= 1.2;
+      } else if (cat === 'Healthy Shakes') {
+        w *= (hora >= 14 && hora <= 20) ? 2.1 : 0.6;
+        if (faixa === '16–24') w *= 1.8; else if (faixa === '25–34') w *= 1.3;
+        if (dow === 0 || dow === 6) w *= 1.4;
       } else if (cat === 'Snacks') {
-        w *= (hora >= 8 && hora <= 10) || (hora >= 15 && hora <= 18) ? 1.9 : 0.8;
-      } else if (cat === 'Combos') {
-        w *= (dow === 0 || dow === 6) ? 1.8 : 1;
-        if (hora <= 10) w *= 1.4;
+        w *= ((hora >= 8 && hora <= 10) || (hora >= 15 && hora <= 18)) ? 1.8 : 0.75;
+      } else if (cat === 'Bebidas') {
+        w *= 0.9;
+        if (regiao === 'Nordeste' || regiao === 'Centro-Oeste') w *= 1.3;
       } else if (cat === 'Adicionais') {
-        w *= 0.55;
+        w *= 0.5;   // quase sempre entram como complemento, tratado abaixo
       }
       return w;
     };
@@ -350,11 +349,17 @@ window.MI = window.MI || {};
           /* itens já no carrinho puxam complementos */
           if (escolhidos.length) {
             const jaCat = escolhidos[0].categoria;
-            if (p.categoria === 'Adicionais') w *= 3.4;
-            if (jaCat === 'Cafés' && p.categoria === 'Snacks') w *= 3.0;
-            if (jaCat === 'Smoothies' && p.subcategoria === 'Proteicos' && p.nome === 'Barra de Castanhas') w *= 3.5;
-            if (jaCat === 'Açaí' && p.categoria === 'Adicionais') w *= 2.4;
-            if (p.categoria === jaCat) w *= 0.35;
+            const jaSub = escolhidos[0].subcategoria;
+            /* complementos: é o que a análise de cesta deve reencontrar */
+            if (p.categoria === 'Adicionais') w *= 3.2;
+            if (jaCat === 'Protein Smoovs' && p.subcategoria === 'Proteína') w *= 3.8;
+            if (jaCat === 'Protein Smoovs' && p.subcategoria === 'Suplementos') w *= 2.6;
+            if (jaCat === 'Healthy Shakes' && p.subcategoria === 'Superfoods') w *= 2.8;
+            if (jaCat === 'Fruit Smoovs' && p.categoria === 'Snacks') w *= 2.9;
+            if (jaCat === 'Fruit Smoovs' && p.subcategoria === 'Proteína') w *= 2.2;
+            if (jaCat === 'Snacks' && p.categoria === 'Bebidas') w *= 2.3;
+            if (jaSub === 'Energia' && p.categoria === 'Snacks') w *= 2.4;
+            if (p.categoria === jaCat) w *= 0.3;
           }
           total += w;
           return w;

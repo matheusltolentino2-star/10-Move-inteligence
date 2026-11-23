@@ -66,7 +66,57 @@ window.MI = window.MI || {};
     P.log(value ? 'aprovou' : 'revogou', id);
     MI.storage.set('approvals', P.approvals);
     MI.store.emit('approvals', P.approvals);
+    P.gravarNoServidor(id, value);
   };
+
+  /* ---------- Sincronização com o servidor ----------
+     Sem sessão autenticada, a aprovação vive só neste navegador e a interface
+     diz isso. Com sessão, a fonte da verdade passa a ser a tabela
+     approved_indicators, protegida por RLS: só o admin Smoov escreve. */
+  P.gravarNoServidor = function (id, value) {
+    if (!MI.auth || !MI.auth.autenticado()) return Promise.resolve(false);
+    if (MI.auth.role !== 'smoov_admin') return Promise.resolve(false);
+    return MI.auth.client.from('approved_indicators').upsert({
+      org_id: MI.auth.org.id,
+      indicator_id: id,
+      approved: !!value,
+      k_threshold: P.k,
+      approved_by: MI.auth.user.id,
+      approved_at: new Date().toISOString()
+    }, { onConflict: 'org_id,indicator_id' }).then(function (r) {
+      if (r.error) {
+        MI.toast('A aprovação não foi gravada no servidor: ' + r.error.message, 'error');
+        return false;
+      }
+      /* A trilha já foi registrada por P.log — não auditar duas vezes. */
+      return true;
+    }).catch(function () { return false; });
+  };
+
+  P.carregarDoServidor = function () {
+    if (!MI.auth || !MI.auth.autenticado()) return Promise.resolve(false);
+    return MI.auth.client.from('approved_indicators')
+      .select('indicator_id, approved, k_threshold')
+      .eq('org_id', MI.auth.org.id)
+      .then(function (r) {
+        if (r.error) return false;
+        const aprovados = {};
+        let kServidor = null;
+        (r.data || []).forEach(function (row) {
+          if (row.approved) aprovados[row.indicator_id] = true;
+          if (kServidor == null || row.k_threshold > kServidor) kServidor = row.k_threshold;
+        });
+        /* o servidor manda: o que está aqui e não lá deixa de valer */
+        P.approvals = aprovados;
+        MI.storage.set('approvals', aprovados);
+        if (kServidor != null) { P.k = kServidor; MI.storage.set('k', kServidor); }
+        P.sincronizado = true;
+        MI.store.emit('approvals', aprovados);
+        return true;
+      }).catch(function () { return false; });
+  };
+
+  P.sincronizado = false;
   P.approvedCount = function () { return Object.keys(P.approvals).length; };
   P.setAllApproved = function (value) {
     if (value) P.INDICATORS.forEach(function (i) { P.approvals[i.id] = true; });
@@ -74,6 +124,21 @@ window.MI = window.MI || {};
     P.log(value ? 'aprovou todos os indicadores' : 'revogou todas as aprovações', '*');
     MI.storage.set('approvals', P.approvals);
     MI.store.emit('approvals', P.approvals);
+
+    if (MI.auth && MI.auth.autenticado() && MI.auth.role === 'smoov_admin') {
+      const agora = new Date().toISOString();
+      const linhas = P.INDICATORS.map(function (i) {
+        return {
+          org_id: MI.auth.org.id, indicator_id: i.id, approved: !!value,
+          k_threshold: P.k, approved_by: MI.auth.user.id, approved_at: agora
+        };
+      });
+      MI.auth.client.from('approved_indicators')
+        .upsert(linhas, { onConflict: 'org_id,indicator_id' })
+        .then(function (r) {
+          if (r.error) MI.toast('As aprovações não foram gravadas no servidor: ' + r.error.message, 'error');
+        });
+    }
   };
 
   /* Trilha local de decisões (demonstrativa — não é auditoria segura) */
@@ -82,6 +147,9 @@ window.MI = window.MI || {};
     P.trail.unshift({ t: new Date().toISOString(), acao: acao, alvo: alvo });
     if (P.trail.length > 200) P.trail.length = 200;
     MI.storage.set('trail', P.trail);
+    /* Com sessão autenticada a ação também vai para a trilha do servidor, que
+       é append-only e que o usuário não consegue apagar. */
+    if (MI.auth && MI.auth.autenticado()) MI.auth.auditar(acao, alvo);
   };
   P.clearTrail = function () { P.trail = []; MI.storage.set('trail', []); MI.store.emit('approvals', P.approvals); };
 

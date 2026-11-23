@@ -47,86 +47,14 @@ window.MI = window.MI || {};
   }
   MI.idb = { get: idbGet, set: idbSet };
 
-  /* ================= Catálogo demonstrativo (FICTÍCIO) ================= */
-  /* Produtos inventados para demonstração da plataforma. Não representam o
-     cardápio real da Smoov. Preços em BRL, valores nutricionais por porção. */
-  const DEMO = [
-    // [nome, categoria, subcategoria, tamanho, preco, kcal, ingredientes, alergenicos, tags]
-    ['Verde Leve', 'Smoothies', 'Funcionais', '300 ml', 18.90, 142, 'couve, maçã verde, gengibre, limão, água de coco', '', 'detox,vegano,sem lactose'],
-    ['Verde Leve', 'Smoothies', 'Funcionais', '500 ml', 24.90, 236, 'couve, maçã verde, gengibre, limão, água de coco', '', 'detox,vegano,sem lactose'],
-    ['Tropical Manhã', 'Smoothies', 'Frutas', '300 ml', 17.90, 186, 'manga, maracujá, banana, iogurte natural', 'leite', 'proteico'],
-    ['Tropical Manhã', 'Smoothies', 'Frutas', '500 ml', 23.90, 310, 'manga, maracujá, banana, iogurte natural', 'leite', 'proteico'],
-    ['Vermelho Vivo', 'Smoothies', 'Frutas', '300 ml', 18.50, 164, 'morango, framboesa, beterraba, água de coco', '', 'vegano,antioxidante'],
-    ['Vermelho Vivo', 'Smoothies', 'Frutas', '500 ml', 24.50, 272, 'morango, framboesa, beterraba, água de coco', '', 'vegano,antioxidante'],
-    ['Proteína Cacau', 'Smoothies', 'Proteicos', '400 ml', 26.90, 348, 'banana, cacau, pasta de amendoim, whey, leite', 'leite, amendoim', 'proteico,pós-treino'],
-    ['Proteína Baunilha', 'Smoothies', 'Proteicos', '400 ml', 26.90, 322, 'banana, baunilha, aveia, whey, leite', 'leite, glúten', 'proteico,pós-treino'],
-    ['Proteína Vegana', 'Smoothies', 'Proteicos', '400 ml', 29.90, 296, 'banana, proteína de ervilha, pasta de castanha, bebida de amêndoas', 'castanhas', 'proteico,vegano'],
-
-    ['Açaí Tradicional', 'Açaí', 'Tigelas', '300 ml', 21.90, 412, 'açaí, banana, granola', 'glúten', ''],
-    ['Açaí Tradicional', 'Açaí', 'Tigelas', '500 ml', 28.90, 668, 'açaí, banana, granola', 'glúten', ''],
-    ['Açaí Zero Açúcar', 'Açaí', 'Tigelas', '300 ml', 23.90, 298, 'açaí sem açúcar, morango, castanha', 'castanhas', 'zero açúcar'],
-    ['Açaí Proteico', 'Açaí', 'Tigelas', '400 ml', 31.90, 486, 'açaí, whey, pasta de amendoim, banana', 'leite, amendoim', 'proteico'],
-    ['Açaí no Copo', 'Açaí', 'Copos', '400 ml', 19.90, 388, 'açaí, banana', '', 'vegano'],
-
-    ['Laranja Natural', 'Sucos', 'Naturais', '400 ml', 13.90, 176, 'laranja', '', 'vegano,sem açúcar'],
-    ['Laranja com Acerola', 'Sucos', 'Naturais', '400 ml', 15.90, 168, 'laranja, acerola', '', 'vegano,vitamina C'],
-    ['Abacaxi com Hortelã', 'Sucos', 'Naturais', '400 ml', 14.90, 142, 'abacaxi, hortelã', '', 'vegano'],
-    ['Melancia Gelada', 'Sucos', 'Naturais', '400 ml', 13.50, 118, 'melancia', '', 'vegano'],
-    ['Limonada Suíça', 'Sucos', 'Refrescos', '400 ml', 14.50, 186, 'limão, leite condensado', 'leite', ''],
-    ['Água de Coco', 'Sucos', 'Naturais', '300 ml', 11.90, 58, 'água de coco', '', 'vegano,isotônico'],
-
-    ['Café Coado', 'Cafés', 'Quentes', '200 ml', 7.90, 4, 'café arábica', '', 'vegano'],
-    ['Cappuccino', 'Cafés', 'Quentes', '240 ml', 13.90, 162, 'café, leite, cacau', 'leite', ''],
-    ['Latte Gelado', 'Cafés', 'Gelados', '300 ml', 15.90, 148, 'café, leite, gelo', 'leite', ''],
-    ['Latte Vegano', 'Cafés', 'Gelados', '300 ml', 17.90, 126, 'café, bebida de aveia', 'glúten', 'vegano'],
-    ['Espresso Duplo', 'Cafés', 'Quentes', '60 ml', 9.90, 6, 'café arábica', '', 'vegano'],
-
-    ['Pão de Queijo', 'Snacks', 'Salgados', 'unidade', 6.50, 128, 'polvilho, queijo, ovo', 'leite, ovo', ''],
-    ['Tapioca de Queijo', 'Snacks', 'Salgados', 'unidade', 14.90, 236, 'tapioca, queijo', 'leite', 'sem glúten'],
-    ['Tapioca de Frango', 'Snacks', 'Salgados', 'unidade', 18.90, 312, 'tapioca, frango, requeijão', 'leite', 'sem glúten'],
-    ['Sanduíche Natural', 'Snacks', 'Salgados', 'unidade', 19.90, 348, 'pão integral, frango, cenoura, iogurte', 'glúten, leite', ''],
-    ['Wrap Vegetariano', 'Snacks', 'Salgados', 'unidade', 22.90, 386, 'tortilha, grão-de-bico, legumes', 'glúten', 'vegetariano'],
-    ['Barra de Castanhas', 'Snacks', 'Doces', 'unidade', 9.90, 182, 'castanhas, tâmara, cacau', 'castanhas', 'vegano,sem glúten'],
-    ['Cookie Integral', 'Snacks', 'Doces', 'unidade', 8.90, 164, 'aveia, cacau, açúcar mascavo', 'glúten', 'vegetariano'],
-    ['Granola Pote', 'Snacks', 'Doces', '120 g', 12.90, 442, 'aveia, mel, castanhas', 'glúten, castanhas', ''],
-
-    ['Combo Café da Manhã', 'Combos', 'Manhã', 'combo', 29.90, 466, 'suco de laranja, pão de queijo, café coado', 'leite, ovo', ''],
-    ['Combo Pós-Treino', 'Combos', 'Treino', 'combo', 39.90, 538, 'smoothie proteico, barra de castanhas', 'leite, amendoim, castanhas', 'proteico'],
-    ['Combo Tarde Leve', 'Combos', 'Tarde', 'combo', 34.90, 420, 'açaí no copo, água de coco', '', 'vegano'],
-    ['Combo Dupla', 'Combos', 'Compartilhar', 'combo', 54.90, 892, 'dois smoothies, dois pães de queijo', 'leite, ovo', ''],
-
-    ['Dose de Whey', 'Adicionais', 'Suplementos', 'dose', 8.90, 120, 'whey protein', 'leite', 'proteico'],
-    ['Dose de Colágeno', 'Adicionais', 'Suplementos', 'dose', 9.90, 36, 'colágeno hidrolisado', '', ''],
-    ['Dose de Pasta de Amendoim', 'Adicionais', 'Complementos', 'dose', 5.90, 94, 'pasta de amendoim', 'amendoim', 'vegano'],
-    ['Granola Extra', 'Adicionais', 'Complementos', 'dose', 4.90, 88, 'granola', 'glúten', ''],
-    ['Leite Vegetal', 'Adicionais', 'Complementos', 'dose', 4.50, 32, 'bebida de amêndoas', 'castanhas', 'vegano']
-  ];
-
-  const REGIOES_DEMO = ['Todas as unidades'];
-
-  function demoCatalog() {
-    const rng = new MI.Rng(77001);
-    return DEMO.map(function (p, i) {
-      const disponivel = rng.chance(0.92);
-      return {
-        id: 'demo-' + i,
-        sku: 'SMV-' + String(1000 + i),
-        nome: p[0],
-        categoria: p[1],
-        subcategoria: p[2],
-        tamanho: p[3],
-        preco: p[4],
-        kcal: p[5],
-        ingredientes: p[6],
-        alergenicos: p[7],
-        tags: p[8],
-        descricao: '',
-        imagem: null,
-        disponivel: disponivel,
-        regiao: REGIOES_DEMO[0],
-        origem: 'demo'
-      };
-    });
+  /* ================= Catálogo padrão ================= */
+  /* O catálogo inicial é o cardápio OFICIAL da Smoov, transcrito da peça
+     enviada pelo cliente em 23/11/2026 (data-catalog-smoov.js, que também
+     documenta o que é literal, o que é derivado e o que ficou em branco).
+     Não existe catálogo fictício: produto inventado dentro de um módulo de
+     cardápio acaba sendo confundido com o cardápio real. */
+  function catalogoPadrao() {
+    return MI.catalogoSmoov ? MI.catalogoSmoov() : [];
   }
 
   /* ================= Store do catálogo ================= */
@@ -141,17 +69,23 @@ window.MI = window.MI || {};
     emit: function () { C.listeners.forEach(function (cb) { cb(C); }); },
 
     isDemo: function () { return C.source === 'demo'; },
+    isOficial: function () { return C.source === 'oficial'; },
 
     load: function () {
       return idbGet('catalog').then(function (saved) {
+        /* Navegadores que já usaram a versão anterior têm o catálogo fictício
+           gravado. Ele é descartado em favor do cardápio oficial — catálogo
+           inventado não pode sobreviver a uma atualização e ser confundido
+           com o real. Catálogo importado pelo usuário é preservado. */
+        if (saved && saved.source === 'demo') saved = null;
         if (saved && saved.items && saved.items.length) {
           C.items = saved.items;
           C.source = saved.source || 'import';
           C.fileName = saved.fileName || null;
           C.loadedAt = saved.loadedAt ? new Date(saved.loadedAt) : null;
         } else {
-          C.items = demoCatalog();
-          C.source = 'demo';
+          C.items = catalogoPadrao();
+          C.source = 'oficial';
           C.loadedAt = new Date();
         }
         C.reindex();
@@ -167,7 +101,7 @@ window.MI = window.MI || {};
     },
 
     reset: function () {
-      C.items = demoCatalog(); C.source = 'demo'; C.fileName = null; C.loadedAt = new Date();
+      C.items = catalogoPadrao(); C.source = 'oficial'; C.fileName = null; C.loadedAt = new Date();
       C.reindex(); C.save(); C.emit();
     },
 
@@ -319,7 +253,8 @@ window.MI = window.MI || {};
         { k: 'subcategoria', label: 'Subcategoria' }, { k: 'preco', label: 'Preço' },
         { k: 'tamanho', label: 'Tamanho / variação' }, { k: 'sku', label: 'SKU' },
         { k: 'descricao', label: 'Descrição' }, { k: 'ingredientes', label: 'Ingredientes' },
-        { k: 'alergenicos', label: 'Alergênicos' }, { k: 'kcal', label: 'Informação nutricional' },
+        { k: 'alergenicos', label: 'Alergênicos' }, { k: 'proteina', label: 'Proteína (g)' },
+        { k: 'kcal', label: 'Calorias (kcal)' },
         { k: 'imagem', label: 'Imagem' }, { k: 'regiao', label: 'Unidade / região' }
       ];
       const n = C.items.length || 1;
@@ -345,6 +280,7 @@ window.MI = window.MI || {};
     { key: 'ingredientes', label: 'Ingredientes', match: /ingrediente|composicao|composição|recheio/ },
     { key: 'alergenicos', label: 'Alergênicos', match: /alerg|contem|contém|restricao|restrição/ },
     { key: 'kcal', label: 'Calorias (kcal)', match: /kcal|caloria|energia|valor_?energetico/ },
+    { key: 'proteina', label: 'Proteína (g)', match: /proteina|proteína|protein|prot_?g|gramas_?prot/ },
     { key: 'sku', label: 'SKU / código', match: /sku|codigo|código|cod_?prod|ean|referencia|referência|id_?produto/ },
     { key: 'disponivel', label: 'Disponibilidade', match: /dispon|ativo|status|em_?estoque|situacao|situação/ },
     { key: 'regiao', label: 'Unidade / região', match: /unidade|regiao|região|loja|filial|praca|praça|cidade/ },
@@ -399,6 +335,7 @@ window.MI = window.MI || {};
         ingredientes: get('ingredientes') ? String(get('ingredientes')).trim() : '',
         alergenicos: get('alergenicos') ? String(get('alergenicos')).trim() : '',
         kcal: get('kcal') != null ? MI.parseNumber(get('kcal')) : null,
+        proteina: get('proteina') != null ? MI.parseNumber(get('proteina')) : null,
         sku: get('sku') ? String(get('sku')).trim() : '',
         disponivel: disponivel,
         regiao: get('regiao') ? String(get('regiao')).trim() : '',

@@ -186,7 +186,8 @@ window.MI = window.MI || {};
         A.org = escolhida.organizations;
         const perfil = PAPEL_PARA_PERFIL[A.role];
         if (perfil) MI.store.setPerspective(perfil);
-        return A;
+        /* a partir daqui a fonte da verdade das aprovações é o servidor */
+        return MI.privacy.carregarDoServidor().then(function () { return A; });
       });
   }
 

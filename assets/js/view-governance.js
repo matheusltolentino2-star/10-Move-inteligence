@@ -128,6 +128,16 @@ MI.views = MI.views || {};
         ]));
 
         /* ---------- Aprovação de indicadores ---------- */
+        const autenticado = MI.auth && MI.auth.autenticado();
+        root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note(autenticado ? 'ok' : 'warn', [
+          el('strong', { text: autenticado ? 'Aprovações gravadas no servidor. ' : 'Aprovações apenas neste navegador. ' }),
+          autenticado
+            ? 'Cada decisão vai para a tabela approved_indicators do Supabase, protegida por RLS: só este perfil escreve, ' +
+            'e a visão da 10 Move lê de lá. A ação fica registrada na trilha de auditoria do servidor, que ninguém apaga.'
+            : 'Sem sessão autenticada, o que você aprovar aqui vale só para esta máquina e não chega à 10 Move. ' +
+            'Para valer de verdade, a plataforma precisa estar publicada com login — veja Configurações e Acessos › Publicação.'
+        ])));
+
         root.appendChild(U.section('Indicadores liberados para a 10 Move',
           'Por padrão nada é compartilhado. Aprove item por item.', [
           U.btn('Aprovar todos', { sm: true, onClick: function () { P.setAllApproved(true); MI.toast('Todos os indicadores aprovados.', 'ok'); MI.app.rerender(); } }),
