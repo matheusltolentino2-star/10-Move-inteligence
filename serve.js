@@ -46,8 +46,13 @@ const TYPES = {
 const SKELETON_HEAD = '<!doctype html>\n<html lang="pt-BR">\n<head>\n' +
   '<meta charset="utf-8">\n' +
   '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n' +
+  /* Sem [hidden]{display:none!important} de propósito. O publicador de
+     Artifact injeta essa regra, e replicá-la aqui mascarou um bug que só
+     aparecia na Vercel: a tela de carregamento nunca sumia, porque
+     #boot{display:grid} vence o [hidden] padrão do navegador. O ambiente
+     local deve ser o mais pobre dos dois, não o mais generoso. */
   '<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}' +
-  'body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>\n';
+  'body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}</style>\n';
 const SKELETON_MID = '</head>\n<body>\n';
 const SKELETON_FOOT = '\n</body>\n</html>\n';
 

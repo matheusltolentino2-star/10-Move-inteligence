@@ -115,6 +115,14 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* O atributo hidden é aplicado pelo navegador com uma regra de
+   especificidade mínima ([hidden]{display:none}). Qualquer seletor de id ou
+   classe que defina display vence — e foi o que aconteceu: #boot tem
+   display:grid, então esconder a tela de carregamento com .hidden = true não
+   surtia efeito nenhum e ela ficava na frente da aplicação para sempre.
+   Esta linha devolve ao atributo o poder que ele deveria ter. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);
