@@ -107,11 +107,22 @@ window.MI = window.MI || {};
 
   /* ---------------- Inicialização ---------------- */
 
+  /* Acompanha a mesma versão dos demais arquivos, lida da própria página, para
+     o config.js nunca ficar preso em cache enquanto o resto é atualizado. */
+  function versaoAssets() {
+    try {
+      const s = document.querySelector('script[src*="core.js?v="]');
+      if (s) return (s.getAttribute('src').split('?v=')[1] || '').trim();
+    } catch (e) { }
+    return '';
+  }
+
   function garantirConfig() {
     if (window.MI_CONFIG) return Promise.resolve();
     return new Promise(function (resolve) {
+      const v = versaoAssets();
       const s = document.createElement('script');
-      s.src = 'config.js';
+      s.src = 'config.js' + (v ? '?v=' + v : '');
       s.onload = function () { resolve(); };
       s.onerror = function () { resolve(); };   // ausência de config é um estado válido
       document.head.appendChild(s);
