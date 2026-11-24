@@ -261,6 +261,8 @@ window.MI = window.MI || {};
         app.closePanel();
       });
       MI.$('#btn-filters').addEventListener('click', function () { app.openFilters(); });
+      const btnTema = MI.$('#btn-tema');
+      if (btnTema) btnTema.addEventListener('click', function () { app.alternarTema(); });
       MI.$('#panel-close').addEventListener('click', function () { app.closePanel(); });
       MI.$('#panel-clear').addEventListener('click', function () {
         st.clearFilters();
@@ -302,6 +304,21 @@ window.MI = window.MI || {};
 
     rerender: function () { app.renderNav(); app.renderFilterBar(); app.renderView(); },
 
+    /* Tema: padrão claro, que é a identidade da Smoov. A escolha do usuário
+       vence a preferência do sistema operacional. */
+    temaAtual: function () { return MI.storage.get('tema', 'claro'); },
+    aplicarTema: function (tema) {
+      const t = tema === 'escuro' ? 'escuro' : 'claro';
+      document.documentElement.setAttribute('data-theme', t === 'escuro' ? 'dark' : 'light');
+      MI.storage.set('tema', t);
+      app.renderNav();
+      /* os gráficos leem as cores dos tokens, então precisam ser redesenhados */
+      app.renderView();
+    },
+    alternarTema: function () {
+      app.aplicarTema(app.temaAtual() === 'claro' ? 'escuro' : 'claro');
+    },
+
     renderNav: function () {
       const host = MI.clear(MI.$('#nav'));
       const nFilters = st.activeFilterCount();
@@ -336,6 +353,15 @@ window.MI = window.MI || {};
       const ds = st.dataset;
       MI.$('#ds-name').textContent = ds ? ds.name : '—';
       MI.$('#ds-meta').textContent = ds ? MI.fmt.int(ds.rows.length) + ' registros · ' + ds.columns.length + ' colunas' : '';
+      const btnTema = MI.$('#btn-tema');
+      if (btnTema) {
+        const escuro = app.temaAtual() === 'escuro';
+        MI.clear(btnTema);
+        btnTema.appendChild(el('span', { html: MI.icon(escuro ? 'spark' : 'eye', 15) }));
+        btnTema.appendChild(el('span', { text: escuro ? 'Tema claro' : 'Tema escuro' }));
+        btnTema.setAttribute('aria-label', escuro ? 'Mudar para o tema claro' : 'Mudar para o tema escuro');
+      }
+
       MI.$('#sidebar-demo').textContent = ds && ds.source === 'demo'
         ? 'Dados demonstrativos sintéticos. Importe a planilha da Smoov para analisar a base real.'
         : 'Base importada. Processamento local, nenhum envio externo.';
