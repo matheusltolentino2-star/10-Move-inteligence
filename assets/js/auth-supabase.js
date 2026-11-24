@@ -230,12 +230,22 @@ window.MI = window.MI || {};
       A.signIn(email.value.trim(), senha.value)
         .then(function () {
           MI.toast('Sessão iniciada.', 'ok');
-          MI.app.renderNav();
-          MI.app.rerender();
+          /* Só agora a base é carregada: antes de entrar, nada é gerado. */
+          if (MI.app && MI.app.aposLogin) MI.app.aposLogin();
+          else { MI.app.renderNav(); MI.app.rerender(); }
         })
         .catch(function (e) { MI.clear(aviso).appendChild(U.note('crit', e.message)); });
     };
     senha.addEventListener('keydown', function (e) { if (e.key === 'Enter') entrar(); });
+
+    /* Com o menu lateral escondido, a marca precisa aparecer aqui. */
+    host.appendChild(el('div', { class: 'login-marca' }, [
+      el('span', { class: 'brand__mark', text: '10' }),
+      el('div', {}, [
+        el('div', { class: 'login-marca__nome', text: '10 Move Intelligence' }),
+        el('div', { class: 'login-marca__sub', text: 'Smoov · parceria' })
+      ])
+    ]));
 
     host.appendChild(el('div', { class: 'grid' }, U.card({
       span: 'c12',

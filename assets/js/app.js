@@ -87,8 +87,31 @@ window.MI = window.MI || {};
         MI.toast('O carregamento demorou mais que o esperado. Alguns recursos podem estar incompletos.', 'error');
       }, 25000);
 
-      step(0.15, 'Preparando a plataforma…');
-      setTimeout(function () {
+      /* Tela de acesso: sem menu, sem barra de filtros e sem o nome da base.
+         Antes isso aparecia para quem nem tinha entrado, revelando quantos
+         registros e colunas a base ativa tem — com a base real da Smoov,
+         seria vazamento de informação para qualquer um com o link. */
+      const mostrarLogin = function () {
+        if (concluido) return;
+        concluido = true;
+        clearTimeout(vigia);
+        MI.$('#boot').hidden = true;
+        const appEl = MI.$('#app');
+        appEl.hidden = false;
+        appEl.classList.add('is-locked');
+        app.bindShell();
+        MI.$('#title').textContent = '';
+        MI.$('#subtitle').textContent = '';
+        document.title = '10 Move Intelligence';
+        const host = MI.clear(MI.$('#view'));
+        MI.auth.renderGate(host);
+        U.flush();
+        step(1, '');
+      };
+
+      step(0.12, 'Verificando acesso…');
+
+      const gerarEAbrir = function () {
         step(0.35, 'Gerando base demonstrativa de 80 mil clientes…');
         setTimeout(function () {
           let ds;
@@ -119,7 +142,42 @@ window.MI = window.MI || {};
               });
           }, 40);
         }, 40);
-      }, 60);
+      };
+
+      /* A autenticação resolve primeiro. Sem sessão válida, nada é gerado:
+         nem os 80 mil registros, nem as transações, nem o catálogo. */
+      (MI.auth ? MI.auth.init() : Promise.resolve({ enabled: false }))
+        .catch(function () { return { enabled: false }; })
+        .then(function (a) {
+          if (a && a.enabled && !MI.auth.autenticado()) { mostrarLogin(); return; }
+          setTimeout(gerarEAbrir, 40);
+        });
+    },
+
+    /* Chamado pela tela de login depois de uma entrada bem-sucedida. */
+    aposLogin: function () {
+      const appEl = MI.$('#app');
+      appEl.classList.remove('is-locked');
+      const host = MI.clear(MI.$('#view'));
+      host.appendChild(el('div', { class: 'empty' }, [
+        el('div', { html: MI.icon('refresh', 26) }),
+        el('h4', { text: 'Preparando os painéis' }),
+        el('p', { text: 'Carregando a base e o catálogo. Leva alguns segundos.' })
+      ]));
+      setTimeout(function () {
+        try {
+          if (!st.dataset) st.setDataset(app.buildDemo());
+        } catch (e) {
+          console.error(e);
+          MI.toast('Falha ao preparar a base: ' + (e.message || e), 'error');
+        }
+        MI.catalog.load()
+          .catch(function (e) { console.error('Catálogo não carregou:', e); })
+          .then(function () {
+            app.mount();
+            setTimeout(app.gerarTransacoesDemo, 400);
+          });
+      }, 50);
     },
 
     /* Geração em segundo plano, depois que a interface já está utilizável. */
@@ -162,9 +220,9 @@ window.MI = window.MI || {};
       app.renderNav();
       app.bindShell();
 
-      /* Autenticação real: ativa só quando existir config.js com as chaves.
-         Sem ela o módulo não faz nada e a aplicação segue local. */
-      if (MI.auth) {
+      /* A autenticação já foi resolvida no boot. Só é chamada aqui quando a
+         aplicação foi montada por outro caminho e ainda não passou por ela. */
+      if (MI.auth && !MI.auth.ready) {
         MI.auth.init().then(function (a) {
           if (a.enabled) { app.renderNav(); app.renderView(); }
         });

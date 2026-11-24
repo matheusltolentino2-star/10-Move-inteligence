@@ -645,6 +645,36 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
+/* ===================== Tela de acesso =====================
+   Antes de autenticar não se mostra menu, barra de filtros nem o nome e o
+   tamanho da base: isso é informação sobre os dados, e quem ainda não entrou
+   não tem direito a ela. */
+.app.is-locked { grid-template-columns: minmax(0, 1fr); }
+.app.is-locked .sidebar,
+.app.is-locked .filterbar,
+.app.is-locked .ds-chip,
+.app.is-locked #btn-filters,
+.app.is-locked .topbar__burger { display: none !important; }
+.app.is-locked .topbar { border-bottom: 0; min-height: 0; padding-block: 0; }
+.app.is-locked .content {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 82dvh;
+}
+.app.is-locked .grid { max-width: 540px; width: 100%; }
+
+.login-marca {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+  max-width: 540px; width: 100%;
+}
+.login-marca__nome {
+  font-family: var(--font-display); font-weight: 700; font-size: 17px;
+  letter-spacing: -.02em; line-height: 1.15;
+}
+.login-marca__sub {
+  font-size: 11px; color: var(--faint); letter-spacing: .08em; text-transform: uppercase;
+  font-weight: 600; margin-top: 2px;
+}
+
 /* ===================== Abas ===================== */
 .tabs {
   display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-wrap: wrap; margin-bottom: 16px;
