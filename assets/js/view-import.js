@@ -348,6 +348,60 @@ window.MI = window.MI || {};
     }
   };
 
+  /* ---------------- Publicação na plataforma ---------------- */
+  function publicar(kind) {
+    const barra = el('i', { style: 'width:4%;background:var(--accent);display:block;height:100%;border-radius:99px' });
+    const texto = el('p', { class: 'field__hint', style: 'margin-top:10px', text: 'Preparando…' });
+    const aviso = el('div', { style: 'margin-top:12px' });
+    const m = U.modal({
+      title: 'Publicando na plataforma',
+      body: [
+        U.note('warn', [
+          el('strong', { text: 'A base sai deste navegador. ' }),
+          'A partir daqui ela fica guardada no servidor e acessível a todos os membros da organização, ' +
+          'inclusive à equipe da 10 Move. Cada carregamento fica registrado na trilha de auditoria.'
+        ]),
+        el('div', { style: 'margin-top:14px;height:4px;border-radius:99px;background:var(--surface-3);overflow:hidden' }, barra),
+        texto, aviso
+      ]
+    });
+
+    const andamento = function (p, t) {
+      barra.style.width = Math.max(4, Math.round(p * 100)) + '%';
+      texto.textContent = t || '';
+    };
+
+    const promessa = kind === 'clientes'
+      ? MI.remote.publicarClientes(MI.store.dataset, andamento)
+      : MI.remote.publicarTransacoes(andamento);
+
+    promessa
+      .then(function () {
+        andamento(1, 'Concluído.');
+        MI.clear(aviso).appendChild(U.note('ok', [
+          el('strong', { text: 'Base publicada. ' }),
+          'Quem entrar na plataforma passa a carregá-la automaticamente, sem reenviar o arquivo.'
+        ]));
+        MI.toast('Base publicada na plataforma.', 'ok');
+        setTimeout(function () { m.close(); MI.app.rerender(); }, 1600);
+      })
+      .catch(function (e) {
+        MI.clear(aviso).appendChild(U.note('crit', [
+          el('strong', { text: 'Não foi publicada. ' }), e.message || String(e)
+        ]));
+      });
+  }
+
+  function botaoPublicar(kind, habilitado, motivo) {
+    if (!MI.remote || !MI.remote.disponivel()) return null;
+    if (!MI.remote.podePublicar()) return null;
+    return U.btn('Publicar na plataforma', {
+      sm: true, variant: 'accent', icon: 'upload',
+      disabled: !habilitado, title: habilitado ? null : motivo,
+      onClick: function () { publicar(kind); }
+    });
+  }
+
   /* ---------------- Base ativa ---------------- */
   function baseAtiva(modo) {
     if (modo === 'clientes') {
@@ -356,16 +410,23 @@ window.MI = window.MI || {};
         span: 'c12',
         title: ds ? ds.name : 'Nenhuma base de clientes',
         sub: ds ? (ds.source === 'demo' ? 'Base demonstrativa fictícia gerada neste navegador'
-          : 'Arquivo importado: ' + ds.fileName + (ds.sheetName ? ' · aba “' + ds.sheetName + '”' : '')) : null,
-        tools: [ds && ds.source === 'import' ? U.btn('Voltar à base demonstrativa', {
-          sm: true, icon: 'refresh', onClick: function () { MI.app.loadDemo(); MI.toast('Base demonstrativa restaurada.', 'ok'); }
-        }) : null].filter(Boolean),
+          : ds.source === 'remote'
+            ? 'Base publicada na plataforma' + (ds.remoto && ds.remoto.enviadoEm ? ' em ' + MI.fmt.date(new Date(ds.remoto.enviadoEm)) : '') +
+            ' · carregada do servidor, sem reenvio'
+            : 'Arquivo importado: ' + ds.fileName + (ds.sheetName ? ' · aba “' + ds.sheetName + '”' : '')) : null,
+        tools: [
+          botaoPublicar('clientes', !!(ds && ds.source === 'import'),
+            ds && ds.source === 'remote' ? 'Esta base já veio da plataforma' : 'Importe uma planilha antes de publicar'),
+          ds && ds.source === 'import' ? U.btn('Voltar à base demonstrativa', {
+            sm: true, icon: 'refresh', onClick: function () { MI.app.loadDemo(); MI.toast('Base demonstrativa restaurada.', 'ok'); }
+          }) : null
+        ].filter(Boolean),
         body: ds ? U.statline([
           { k: 'Registros', v: MI.fmt.int(ds.rows.length) },
           { k: 'Colunas', v: String(ds.columns.length) },
           { k: 'Papéis mapeados', v: String(Object.keys(ds.roles).length) },
           { k: 'Data de referência', v: MI.fmt.date(ds.refDate) },
-          { k: 'Origem', v: ds.source === 'demo' ? 'Sintética' : 'Planilha importada' }
+          { k: 'Origem', v: ds.source === 'demo' ? 'Sintética' : ds.source === 'remote' ? 'Plataforma' : 'Planilha importada' }
         ]) : U.empty('Nenhuma base ativa')
       }));
     }
@@ -374,16 +435,20 @@ window.MI = window.MI || {};
       span: 'c12',
       title: T.has() ? (T.isDemo() ? 'Transações demonstrativas' : 'Transações importadas') : 'Nenhuma base de transações',
       sub: T.has() ? (T.fileName || 'geradas neste navegador') : 'A Inteligência de Consumo precisa de itens de pedido',
-      tools: [T.has() ? U.btn('Remover transações', {
-        sm: true, variant: 'ghost', icon: 'trash',
-        onClick: function () { MI.tx.clear(); MI.toast('Transações removidas.', 'ok'); MI.app.rerender(); }
-      }) : null].filter(Boolean),
+      tools: [
+        botaoPublicar('transacoes', T.has() && !T.isDemo() && T.source !== 'remote',
+          T.isDemo() ? 'As transações demonstrativas não são publicadas' : 'Importe uma base de transações antes de publicar'),
+        T.has() ? U.btn('Remover transações', {
+          sm: true, variant: 'ghost', icon: 'trash',
+          onClick: function () { MI.tx.clear(); MI.toast('Transações removidas.', 'ok'); MI.app.rerender(); }
+        }) : null
+      ].filter(Boolean),
       body: T.has() ? U.statline([
         { k: 'Itens de pedido', v: MI.fmt.int(T.link.itens) },
         { k: 'Pedidos', v: MI.fmt.int(T.link.pedidos) },
         { k: 'Casados com o catálogo', v: MI.fmt.pct(T.link.taxaProduto, 1) },
         { k: 'Ligados a clientes', v: MI.fmt.pct(T.link.taxaCliente, 1) },
-        { k: 'Origem', v: T.isDemo() ? 'Sintética' : 'Planilha importada' }
+        { k: 'Origem', v: T.isDemo() ? 'Sintética' : T.source === 'remote' ? 'Plataforma' : 'Planilha importada' }
       ]) : U.empty('Sem transações carregadas', 'Importe o arquivo de pedidos ou gere uma base demonstrativa em Inteligência de Consumo.')
     }));
   }

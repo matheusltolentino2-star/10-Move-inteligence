@@ -70,7 +70,7 @@ window.MI = window.MI || {};
         /* As 120 mil transações demonstrativas ficam para depois da primeira
            tela aparecer. Elas não valem segurar o carregamento, ainda mais em
            celular. */
-        setTimeout(app.gerarTransacoesDemo, 400);
+        setTimeout(app.carregarTransacoes, 400);
       };
 
       /* Rede de segurança: nenhuma espera pode prender a tela de carregamento
@@ -112,36 +112,42 @@ window.MI = window.MI || {};
       step(0.12, 'Verificando acesso…');
 
       const gerarEAbrir = function () {
-        step(0.35, 'Gerando base demonstrativa de 80 mil clientes…');
-        setTimeout(function () {
-          let ds;
-          try {
-            ds = app.buildDemo();
-          } catch (e) {
-            console.error(e);
-            clearTimeout(vigia);
-            falhar('Falha ao gerar a base demonstrativa: ' + (e.message || e));
-            return;
-          }
-          step(0.62, 'Detectando colunas e tipos de dado…');
-          setTimeout(function () {
-            try {
-              st.setDataset(ds);
-            } catch (e) {
-              console.error(e);
-              clearTimeout(vigia);
-              falhar('Falha ao preparar a base: ' + (e.message || e));
-              return;
+        step(0.28, 'Procurando a base publicada na plataforma…');
+        app.carregarBaseAtiva(function (p, t) { step(0.3 + p * 0.4, t); })
+          .catch(function (e) {
+            console.error('Base publicada não carregou:', e);
+            MI.toast('A base publicada não carregou: ' + (e.message || e), 'error');
+            return null;
+          })
+          .then(function (ds) {
+            if (!ds) {
+              step(0.35, 'Gerando base demonstrativa de 80 mil clientes…');
+              try { ds = app.buildDemo(); }
+              catch (e) {
+                console.error(e); clearTimeout(vigia);
+                falhar('Falha ao gerar a base demonstrativa: ' + (e.message || e));
+                return false;
+              }
             }
-            step(0.82, 'Carregando o catálogo de produtos…');
-            MI.catalog.load()
+            step(0.75, 'Detectando colunas e tipos de dado…');
+            try { st.setDataset(ds); }
+            catch (e) {
+              console.error(e); clearTimeout(vigia);
+              falhar('Falha ao preparar a base: ' + (e.message || e));
+              return false;
+            }
+            return true;
+          })
+          .then(function (ok) {
+            if (!ok) return;
+            step(0.88, 'Carregando o catálogo de produtos…');
+            return MI.catalog.load()
               .catch(function (e) { console.error('Catálogo não carregou:', e); })
               .then(function () {
                 step(0.95, 'Montando painéis…');
                 setTimeout(mostrarApp, 40);
               });
-          }, 40);
-        }, 40);
+          });
       };
 
       /* A autenticação resolve primeiro. Sem sessão válida, nada é gerado:
@@ -175,9 +181,41 @@ window.MI = window.MI || {};
           .catch(function (e) { console.error('Catálogo não carregou:', e); })
           .then(function () {
             app.mount();
-            setTimeout(app.gerarTransacoesDemo, 400);
+            setTimeout(app.carregarTransacoes, 400);
           });
       }, 50);
+    },
+
+    /* A base publicada na plataforma tem prioridade sobre a demonstrativa:
+       é o que o administrador da Smoov subiu e o que os dois lados devem ver. */
+    carregarBaseAtiva: function (onProgress) {
+      if (!MI.remote || !MI.remote.disponivel()) return Promise.resolve(null);
+      return MI.remote.ativa('clientes').then(function (meta) {
+        if (!meta) return null;
+        if (onProgress) onProgress(0, 'Baixando a base publicada por ' + (meta.file_name || meta.name) + '…');
+        return MI.remote.carregarClientes(meta, onProgress);
+      });
+    },
+
+    /* Mesma ordem para as transações: publicada primeiro, demonstrativa depois. */
+    carregarTransacoes: function () {
+      if (MI.tx.has()) return;
+      if (MI.remote && MI.remote.disponivel()) {
+        MI.remote.ativa('transacoes')
+          .then(function (meta) {
+            if (!meta) { app.gerarTransacoesDemo(); return; }
+            return MI.remote.carregarTransacoes(meta).then(function () {
+              app.renderNav();
+              if (app.current === 'consumption') app.renderView();
+            });
+          })
+          .catch(function (e) {
+            console.error('Transações publicadas não carregaram:', e);
+            app.gerarTransacoesDemo();
+          });
+        return;
+      }
+      app.gerarTransacoesDemo();
     },
 
     /* Geração em segundo plano, depois que a interface já está utilizável. */
