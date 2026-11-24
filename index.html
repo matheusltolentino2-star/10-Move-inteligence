@@ -5,7 +5,54 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap">
-<link rel="stylesheet" href="assets/css/app.css?v=20261124a">
+<link rel="stylesheet" href="assets/css/app.css?v=20261124b">
+
+<!-- Captura de falhas ANTES de qualquer script da aplicação.
+     Se um arquivo não carregar ou não for interpretado, nada do app existe —
+     nem o vigia do boot — e a tela ficaria girando sem explicação. Este
+     trecho é inline de propósito: precisa funcionar mesmo que todo o resto
+     falhe. -->
+<script>
+(function () {
+  var erros = [];
+  function mostrar(titulo) {
+    var alvo = document.getElementById('boot-msg');
+    if (!alvo) return;
+    while (alvo.firstChild) alvo.removeChild(alvo.firstChild);
+    var h = document.createElement('div');
+    h.style.cssText = 'color:#ff9b94;font-weight:600;margin-bottom:10px;font-size:13px';
+    h.textContent = titulo || 'A aplicação não conseguiu iniciar neste navegador.';
+    alvo.appendChild(h);
+    erros.slice(0, 5).forEach(function (t) {
+      var p = document.createElement('div');
+      p.style.cssText = 'color:#9fb6cd;font-size:11.5px;margin-bottom:5px;word-break:break-word;text-align:left';
+      p.textContent = '• ' + t;
+      alvo.appendChild(p);
+    });
+    var r = document.createElement('div');
+    r.style.cssText = 'color:#6f89a5;font-size:10.5px;margin-top:10px';
+    r.textContent = 'Copie este texto e envie para quem cuida do sistema.';
+    alvo.appendChild(r);
+  }
+  window.addEventListener('error', function (ev) {
+    var alvo = ev.target;
+    if (alvo && (alvo.tagName === 'SCRIPT' || alvo.tagName === 'LINK')) {
+      var u = alvo.src || alvo.href || '';
+      erros.push('não carregou: ' + u.split('/').slice(-1)[0]);
+    } else {
+      erros.push((ev.message || 'erro') +
+        (ev.filename ? ' — ' + ev.filename.split('/').slice(-1)[0] + ':' + ev.lineno : ''));
+    }
+    mostrar();
+  }, true);
+  window.addEventListener('unhandledrejection', function (ev) {
+    var r = ev.reason;
+    erros.push('promessa rejeitada: ' + ((r && r.message) || r));
+    mostrar();
+  });
+  window.MI_DIAG = { erros: erros, mostrar: mostrar };
+})();
+</script>
 
 <!-- ===================== Carregamento ===================== -->
 <div id="boot">
@@ -106,37 +153,106 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
 <!-- ===================== Aplicação ===================== -->
-<script src="assets/js/core.js?v=20261124a"></script>
-<script src="assets/js/data-cities.js?v=20261124a"></script>
-<script src="assets/js/data-synthetic.js?v=20261124a"></script>
-<script src="assets/js/data-schema.js?v=20261124a"></script>
-<script src="assets/js/data-store.js?v=20261124a"></script>
-<script src="assets/js/data-stats.js?v=20261124a"></script>
-<script src="assets/js/data-privacy.js?v=20261124a"></script>
-<script src="assets/js/data-import.js?v=20261124a"></script>
-<script src="assets/js/data-catalog-smoov.js?v=20261124a"></script>
-<script src="assets/js/data-catalog.js?v=20261124a"></script>
-<script src="assets/js/data-transactions.js?v=20261124a"></script>
-<script src="assets/js/data-txstats.js?v=20261124a"></script>
-<script src="assets/js/ui-charts.js?v=20261124a"></script>
-<script src="assets/js/ui-components.js?v=20261124a"></script>
-<script src="assets/js/ui-geo.js?v=20261124a"></script>
-<script src="assets/js/view-overview.js?v=20261124a"></script>
-<script src="assets/js/view-profile.js?v=20261124a"></script>
-<script src="assets/js/view-geography.js?v=20261124a"></script>
-<script src="assets/js/view-behavior.js?v=20261124a"></script>
-<script src="assets/js/view-segmentation.js?v=20261124a"></script>
-<script src="assets/js/view-catalog.js?v=20261124a"></script>
-<script src="assets/js/view-consumption.js?v=20261124a"></script>
-<script src="assets/js/view-commercial.js?v=20261124a"></script>
-<script src="assets/js/view-import.js?v=20261124a"></script>
-<script src="assets/js/view-reports.js?v=20261124a"></script>
-<script src="assets/js/view-governance.js?v=20261124a"></script>
-<script src="assets/js/view-settings.js?v=20261124a"></script>
-<script src="assets/js/auth-supabase.js?v=20261124a"></script>
-<script src="assets/js/app.js?v=20261124a"></script>
+<script src="assets/js/core.js?v=20261124b"></script>
+<script src="assets/js/data-cities.js?v=20261124b"></script>
+<script src="assets/js/data-synthetic.js?v=20261124b"></script>
+<script src="assets/js/data-schema.js?v=20261124b"></script>
+<script src="assets/js/data-store.js?v=20261124b"></script>
+<script src="assets/js/data-stats.js?v=20261124b"></script>
+<script src="assets/js/data-privacy.js?v=20261124b"></script>
+<script src="assets/js/data-import.js?v=20261124b"></script>
+<script src="assets/js/data-catalog-smoov.js?v=20261124b"></script>
+<script src="assets/js/data-catalog.js?v=20261124b"></script>
+<script src="assets/js/data-transactions.js?v=20261124b"></script>
+<script src="assets/js/data-txstats.js?v=20261124b"></script>
+<script src="assets/js/ui-charts.js?v=20261124b"></script>
+<script src="assets/js/ui-components.js?v=20261124b"></script>
+<script src="assets/js/ui-geo.js?v=20261124b"></script>
+<script src="assets/js/view-overview.js?v=20261124b"></script>
+<script src="assets/js/view-profile.js?v=20261124b"></script>
+<script src="assets/js/view-geography.js?v=20261124b"></script>
+<script src="assets/js/view-behavior.js?v=20261124b"></script>
+<script src="assets/js/view-segmentation.js?v=20261124b"></script>
+<script src="assets/js/view-catalog.js?v=20261124b"></script>
+<script src="assets/js/view-consumption.js?v=20261124b"></script>
+<script src="assets/js/view-commercial.js?v=20261124b"></script>
+<script src="assets/js/view-import.js?v=20261124b"></script>
+<script src="assets/js/view-reports.js?v=20261124b"></script>
+<script src="assets/js/view-governance.js?v=20261124b"></script>
+<script src="assets/js/view-settings.js?v=20261124b"></script>
+<script src="assets/js/auth-supabase.js?v=20261124b"></script>
+<script src="assets/js/app.js?v=20261124b"></script>
 <script>
   if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
+</script>
+
+<!-- Checagem final: se depois de 4 s a tela de carregamento ainda estiver lá
+     e a aplicação não existir, aponta exatamente qual arquivo não chegou.
+     Sem isso, a falha de um único script vira "carregando para sempre". -->
+<script>
+(function () {
+  function faltantes() {
+    var modulos = [
+      ['core.js', function () { return window.MI && MI.fmt && MI.el; }],
+      ['data-cities.js', function () { return MI.CIDADES; }],
+      ['data-synthetic.js', function () { return MI.gerarBaseDemo; }],
+      ['data-schema.js', function () { return MI.inferSchema; }],
+      ['data-store.js', function () { return MI.store; }],
+      ['data-stats.js', function () { return MI.stats; }],
+      ['data-privacy.js', function () { return MI.privacy; }],
+      ['data-import.js', function () { return MI.importer; }],
+      ['data-catalog-smoov.js', function () { return MI.catalogoSmoov; }],
+      ['data-catalog.js', function () { return MI.catalog; }],
+      ['data-transactions.js', function () { return MI.tx; }],
+      ['data-txstats.js', function () { return MI.txStats; }],
+      ['ui-charts.js', function () { return MI.charts; }],
+      ['ui-components.js', function () { return MI.ui; }],
+      ['ui-geo.js', function () { return MI.geo; }],
+      ['view-overview.js', function () { return MI.views && MI.views.overview; }],
+      ['view-catalog.js', function () { return MI.views && MI.views.catalog; }],
+      ['view-consumption.js', function () { return MI.views && MI.views.consumption; }],
+      ['view-settings.js', function () { return MI.views && MI.views.settings; }],
+      ['auth-supabase.js', function () { return MI.auth; }],
+      ['app.js', function () { return MI.app; }]
+    ];
+    var faltando = [];
+    for (var i = 0; i < modulos.length; i++) {
+      var ok = false;
+      try { ok = !!modulos[i][1](); } catch (e) { ok = false; }
+      if (!ok) faltando.push(modulos[i][0]);
+    }
+    return faltando;
+  }
+
+  /* Arquivo faltando é falha definitiva: não adianta esperar, avisa logo. */
+  setTimeout(function () {
+    var boot = document.getElementById('boot');
+    if (!boot || boot.hidden) return;
+    var faltando = faltantes();
+    if (!faltando.length) return;
+    var diag = window.MI_DIAG;
+    if (!diag) return;
+    diag.erros.push('primeiro arquivo que falhou: ' + faltando[0]);
+    if (faltando.length > 1) diag.erros.push('também faltam: ' + faltando.slice(1, 6).join(', '));
+    diag.erros.push('bibliotecas externas — Chart: ' + (!!window.Chart) +
+      ', XLSX: ' + (!!window.XLSX) + ', jsPDF: ' + !!(window.jspdf) + ', pdf.js: ' + (!!window.pdfjsLib));
+    diag.mostrar('A aplicação não carregou por completo.');
+  }, 6000);
+
+  /* Tudo carregou mas a inicialização não terminou nem o vigia do boot agiu:
+     só falar depois de 30 s, para não alarmar máquina lenta. */
+  setTimeout(function () {
+    var boot = document.getElementById('boot');
+    if (!boot || boot.hidden) return;
+    if (faltantes().length) return;
+    var diag = window.MI_DIAG;
+    if (!diag) return;
+    var etapa = (document.getElementById('boot-msg') || {}).textContent || '(sem mensagem)';
+    diag.erros.push('todos os arquivos carregaram; a inicialização parou em: ' + etapa);
+    diag.erros.push('navegador: ' + navigator.userAgent.slice(0, 110));
+    diag.mostrar('A inicialização não terminou.');
+  }, 30000);
+})();
 </script>
