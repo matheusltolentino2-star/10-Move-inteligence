@@ -200,6 +200,66 @@ window.MI = window.MI || {};
       this.emit('dataset', ds);
     },
 
+    /* Acrescenta à base atual as colunas de outra planilha, casando pela
+       chave do cliente. Uma planilha só de endereços deixa de ser uma base
+       separada e vira colunas novas nos clientes que já existem.
+
+       Linha sem correspondência fica com as colunas novas vazias, e a
+       contagem volta no resultado: saber quantos ficaram de fora é o que
+       diz se a chave usada foi a certa. */
+    juntarColunas: function (ds, novas, chaveAtual, chaveNova, colunas) {
+      if (!ds || !novas || !novas.length) return null;
+      const porChave = new Map();
+      for (let i = 0; i < novas.length; i++) {
+        const v = novas[i][chaveNova];
+        if (v == null || v === '') continue;
+        const k = String(v).trim();
+        if (!porChave.has(k)) porChave.set(k, novas[i]);
+      }
+      let casadas = 0;
+      for (let i = 0; i < ds.rows.length; i++) {
+        const v = ds.rows[i][chaveAtual];
+        const achou = v == null || v === '' ? null : porChave.get(String(v).trim());
+        if (achou) casadas++;
+        for (let c = 0; c < colunas.length; c++) {
+          ds.rows[i][colunas[c]] = achou ? achou[colunas[c]] : null;
+        }
+      }
+      ds.headers = ds.headers.concat(colunas);
+      return { casadas: casadas, semCorrespondencia: ds.rows.length - casadas, colunas: colunas.slice() };
+    },
+
+    /* Acrescenta linhas de outra planilha do mesmo formato. Cliente que já
+       existe é ignorado em vez de duplicado: dois arquivos com o mesmo mês
+       no meio são mais comuns que raros. */
+    empilhar: function (ds, novas, chaveAtual, chaveNova) {
+      if (!ds || !novas || !novas.length) return null;
+      const existentes = new Set();
+      if (chaveAtual) {
+        for (let i = 0; i < ds.rows.length; i++) {
+          const v = ds.rows[i][chaveAtual];
+          if (v != null && v !== '') existentes.add(String(v).trim());
+        }
+      }
+      let acrescentadas = 0, repetidas = 0;
+      for (let i = 0; i < novas.length; i++) {
+        const v = chaveNova ? novas[i][chaveNova] : null;
+        const k = v == null || v === '' ? null : String(v).trim();
+        if (k && existentes.has(k)) { repetidas++; continue; }
+        if (k) existentes.add(k);
+        const linha = {};
+        for (let c = 0; c < ds.headers.length; c++) {
+          const h = ds.headers[c];
+          /* a chave pode ter outro nome na planilha nova */
+          linha[h] = h === chaveAtual && chaveNova ? novas[i][chaveNova] : novas[i][h];
+          if (linha[h] === undefined) linha[h] = null;
+        }
+        ds.rows.push(linha);
+        acrescentadas++;
+      }
+      return { acrescentadas: acrescentadas, repetidas: repetidas };
+    },
+
     /* Tira a base da memória. Usado ao sair: os registros nunca chegam a
        ser gravados em disco, mas continuariam na tela de quem assumisse o
        computador em seguida. */

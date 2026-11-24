@@ -67,6 +67,9 @@ window.MI = window.MI || {};
           s.ex = MI.importer.extractSheet(s.pendente, s.aba, {
             headerRow: s.headerRow, semCabecalho: s.semCabecalho
           });
+          /* O que esta planilha é, antes de decidir o que fazer com ela. */
+          s.classe = MI.classify.classificar(s.ex);
+          s.plano = null;
           if (modo === 'clientes') {
             s.ds = MI.importer.buildDataset(s.ex, {
               name: s.pendente.fileName.replace(/\.[^.]+$/, '') +
@@ -74,6 +77,7 @@ window.MI = window.MI || {};
               fileName: s.pendente.fileName, fileSize: s.pendente.fileSize, sheetName: s.aba
             });
             s.quality = MI.importer.quality(s.ds);
+            s.plano = MI.classify.planoDeJuncao(s.ex, { columns: s.ds.columns, roles: s.ds.roles }, MI.store.dataset);
           } else {
             s.mapping = MI.tx.inferirMapeamento(s.ex.headers);
           }
@@ -143,10 +147,169 @@ window.MI = window.MI || {};
     }
   }
 
+  /* ================= Reconhecimento e junção ================= */
+
+  const ACAO_ROTULO = {
+    juntarColunas: 'Acrescentar as colunas novas aos clientes que já existem',
+    empilhar: 'Acrescentar os clientes que ainda não estão na base',
+    ambos: 'Acrescentar as colunas novas e os clientes que faltam',
+    substituir: 'Trocar a base atual por esta'
+  };
+
+  /* Cartão que diz o que a aplicação entendeu do arquivo e, quando já há
+     base carregada, o que ela pretende fazer. O palpite aparece com o
+     motivo e com o botão para ser derrubado: quem conhece os dados é quem
+     decide, a aplicação só adianta o trabalho. */
+  function blocoReconhecimento(modo) {
+    const s = ST[modo];
+    const c = s.classe;
+    if (!c) return null;
+
+    const esperado = modo === 'clientes' ? 'clientes' : 'transacoes';
+    const divergente = c.tipo && c.tipo !== esperado;
+
+    const corpo = [];
+    corpo.push(el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, [
+      el('span', {
+        class: 'badge badge--' + (divergente ? 'warn' : c.confianca > 0.45 ? 'ok' : 'info'),
+        text: c.tipo ? MI.classify.nomeTipo(c.tipo) : 'Não reconhecido'
+      }),
+      el('span', {
+        class: 'field__hint',
+        text: c.tipo
+          ? 'reconhecido com ' + MI.fmt.pct(c.confianca, 0) + ' de margem sobre a segunda hipótese (' + c.nomeSegundo + ')'
+          : 'nenhum formato conhecido se destacou; siga pelo mapeamento manual'
+      })
+    ]));
+    if (c.motivos.length) {
+      corpo.push(el('p', { class: 'field__hint', style: 'margin-top:8px', text: 'Pelo que foi encontrado: ' + c.motivos.join('; ') + '.' }));
+    }
+
+    if (divergente) {
+      corpo.push(el('div', { style: 'margin-top:12px' }, U.note('warn', [
+        el('strong', { text: 'Esta aba está importando ' + (modo === 'clientes' ? 'base de clientes' : 'base de pedidos') + '. ' }),
+        'O arquivo tem cara de ' + MI.classify.nomeTipo(c.tipo).toLowerCase() + '. ' +
+        (c.tipo === 'cardapio'
+          ? 'Cardápio se importa em Cardápio & Produtos › Importar cardápio.'
+          : 'Troque de aba antes de aplicar, ou siga assim se souber que está certo.')
+      ])));
+      if (c.tipo === 'clientes' || c.tipo === 'transacoes') {
+        corpo.push(el('div', { style: 'margin-top:10px' }, U.btn('Abrir como ' + MI.classify.nomeTipo(c.tipo).toLowerCase(), {
+          sm: true, variant: 'accent', icon: 'refresh',
+          onClick: function () { trocarDeModo(modo, c.tipo); }
+        })));
+      }
+    }
+
+    const p = s.plano;
+    if (p && p.recomendacao !== 'substituir') {
+      corpo.push(el('div', { style: 'margin-top:14px' }, U.note(null, [
+        el('strong', { text: 'Dá para somar à base que já está carregada. ' }), p.motivo
+      ])));
+      corpo.push(el('div', { style: 'margin-top:10px' }, U.statline([
+        { k: 'Clientes que coincidem', v: MI.fmt.int(p.clientesCoincidentes || 0) },
+        { k: 'Clientes ainda não vistos', v: MI.fmt.int(p.clientesIneditos || 0) },
+        { k: 'Colunas novas', v: MI.fmt.int((p.colunasNovas || []).length) },
+        { k: 'Chave usada', v: p.chaveNova || '—' }
+      ])));
+      if ((p.colunasNovas || []).length) {
+        corpo.push(el('p', {
+          class: 'field__hint', style: 'margin-top:8px',
+          text: 'Colunas que entram: ' + p.colunasNovas.slice(0, 12).join(', ') +
+            (p.colunasNovas.length > 12 ? ' e mais ' + (p.colunasNovas.length - 12) : '') + '.'
+        }));
+      }
+    }
+
+    return el('div', { class: 'grid', style: 'margin-bottom:4px' }, U.card({
+      span: 'c12', title: 'O que esta planilha parece ser', body: corpo
+    }));
+  }
+
+  /* Mesmo arquivo, outra aba de importação: relê sem pedir o upload de novo. */
+  function trocarDeModo(de, para) {
+    const origem = ST[de];
+    const destino = ST[para];
+    destino.pendente = origem.pendente;
+    destino.aba = origem.aba;
+    destino.headerRow = origem.headerRow;
+    destino.semCabecalho = origem.semCabecalho;
+    destino.pontuacao = origem.pontuacao;
+    reset(de);
+    MI.views.settings.abrirAba('dados', para);
+    extrair(para);
+  }
+
+  /* Junta de verdade: acrescenta colunas, acrescenta linhas, ou as duas. */
+  function aplicarJuncao(acao) {
+    const s = ST.clientes;
+    const p = s.plano;
+    const ds = MI.store.dataset;
+    if (!p || !ds) return;
+
+    const partes = [];
+    if (acao === 'juntarColunas' || acao === 'ambos') {
+      const r = MI.store.juntarColunas(ds, s.ex.rows, p.chaveAtual, p.chaveNova, p.colunasNovas);
+      if (r) partes.push(MI.fmt.int(r.colunas.length) + ' colunas em ' + MI.fmt.int(r.casadas) + ' clientes' +
+        (r.semCorrespondencia ? ' (' + MI.fmt.int(r.semCorrespondencia) + ' ficaram sem correspondência)' : ''));
+    }
+    if (acao === 'empilhar' || acao === 'ambos') {
+      const r = MI.store.empilhar(ds, s.ex.rows, p.chaveAtual, p.chaveNova);
+      if (r) partes.push(MI.fmt.int(r.acrescentadas) + ' clientes novos' +
+        (r.repetidas ? ' (' + MI.fmt.int(r.repetidas) + ' já estavam na base)' : ''));
+    }
+
+    /* Tipos e papéis são reinferidos porque a base mudou de forma. Os papéis
+       que já estavam definidos têm precedência: uma coluna nova não toma o
+       lugar do identificador que já funcionava. */
+    const sch = MI.inferSchema(ds.headers, ds.rows);
+    ds.columns = sch.columns;
+    ds.roles = Object.assign({}, sch.roles, ds.roles);
+    ds.columns.forEach(function (c) {
+      c.role = Object.keys(ds.roles).filter(function (r) { return ds.roles[r] === c.key; })[0] || null;
+    });
+    ds.name = ds.name + ' + ' + (s.pendente.fileName || '').replace(/\.[^.]+$/, '');
+    ds.fontes = (ds.fontes || [ds.fileName]).concat([s.pendente.fileName]);
+
+    MI.privacy.log('juntou planilha à base', s.pendente.fileName + ' · ' + partes.join(' · '));
+    reset('clientes');
+    MI.store.setDataset(ds);
+    if (MI.tx.has()) MI.tx.relink();
+    MI.toast('Base ampliada: ' + partes.join(' · ') + '.', 'ok');
+    MI.app.go('overview');
+  }
+
+  function botoesJuncao() {
+    const p = ST.clientes.plano;
+    if (!p || p.recomendacao === 'substituir') return [];
+    const acoes = p.recomendacao === 'ambos'
+      ? ['ambos', 'juntarColunas', 'empilhar']
+      : [p.recomendacao];
+    return acoes.map(function (a, i) {
+      return U.btn(ACAO_ROTULO[a], {
+        variant: i === 0 ? 'accent' : 'ghost', icon: i === 0 ? 'check' : null,
+        onClick: function () { aplicarJuncao(a); }
+      });
+    });
+  }
+
   /* Botões do rodapé da revisão, iguais nos dois modos. */
   function botoesAplicar(modo, rotuloPrincipal) {
     const aplicar = modo === 'clientes' ? aplicarClientes : aplicarTransacoes;
     const publica = MI.remote && MI.remote.podePublicar();
+    /* Com junção possível, somar é o caminho esperado e trocar a base vira a
+       opção secundária — o contrário faria o usuário perder a base anterior
+       justamente quando ele quer as duas. */
+    const juncao = modo === 'clientes' ? botoesJuncao() : [];
+    if (juncao.length) {
+      return juncao.concat([
+        U.btn(ACAO_ROTULO.substituir, {
+          variant: 'ghost',
+          title: 'Descarta a base atual e usa só esta planilha',
+          onClick: function () { aplicar(true); }
+        })
+      ]);
+    }
     return [
       U.btn(publica ? rotuloPrincipal + ' e publicar' : rotuloPrincipal, {
         variant: 'accent', icon: 'check',
@@ -367,6 +530,9 @@ window.MI = window.MI || {};
         botoesAplicar(modo, 'Aplicar').concat([
           U.btn('Cancelar', { variant: 'ghost', onClick: function () { reset(modo); MI.app.rerender(); } })
         ])));
+
+      const reconhecimento = blocoReconhecimento(modo);
+      if (reconhecimento) host.appendChild(reconhecimento);
 
       const blocos = [seletorAbas(modo), blocoCabecalho(modo)].filter(Boolean);
       host.appendChild(el('div', { class: 'grid' }, blocos));
