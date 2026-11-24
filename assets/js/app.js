@@ -44,6 +44,49 @@ window.MI = window.MI || {};
         if (msg) msg.textContent = t;
       };
 
+      let concluido = false;
+
+      const falhar = function (texto) {
+        if (concluido) return;
+        concluido = true;
+        step(1, '');
+        if (!msg) return;
+        MI.clear(msg);
+        msg.appendChild(el('div', { style: 'color:#ff9b94;margin-bottom:12px;line-height:1.5', text: texto }));
+        msg.appendChild(el('button', {
+          class: 'btn btn--accent', type: 'button',
+          onclick: function () { try { location.reload(); } catch (e) { } }
+        }, 'Tentar de novo'));
+      };
+
+      const mostrarApp = function () {
+        if (concluido) return;
+        concluido = true;
+        clearTimeout(vigia);
+        MI.$('#boot').hidden = true;
+        MI.$('#app').hidden = false;
+        app.mount();
+        step(1, '');
+        /* As 120 mil transações demonstrativas ficam para depois da primeira
+           tela aparecer. Elas não valem segurar o carregamento, ainda mais em
+           celular. */
+        setTimeout(app.gerarTransacoesDemo, 400);
+      };
+
+      /* Rede de segurança: nenhuma espera pode prender a tela de carregamento
+         para sempre. Se algo não responder, a aplicação abre com o que tiver
+         pronto, ou explica o que houve — nunca fica girando em silêncio. */
+      const vigia = setTimeout(function () {
+        if (concluido) return;
+        console.warn('Carregamento passou de 25 s; abrindo com o que estiver pronto.');
+        if (!st.dataset) {
+          falhar('O carregamento demorou demais neste navegador. Isso costuma acontecer quando o armazenamento local está bloqueado ou o aparelho tem pouca memória.');
+          return;
+        }
+        mostrarApp();
+        MI.toast('O carregamento demorou mais que o esperado. Alguns recursos podem estar incompletos.', 'error');
+      }, 25000);
+
       step(0.15, 'Preparando a plataforma…');
       setTimeout(function () {
         step(0.35, 'Gerando base demonstrativa de 80 mil clientes…');
@@ -52,31 +95,46 @@ window.MI = window.MI || {};
           try {
             ds = app.buildDemo();
           } catch (e) {
-            step(1, 'Falha ao gerar a base demonstrativa.');
             console.error(e);
-            MI.$('#boot-msg').textContent = 'Falha ao gerar a base demonstrativa: ' + (e.message || e);
+            clearTimeout(vigia);
+            falhar('Falha ao gerar a base demonstrativa: ' + (e.message || e));
             return;
           }
-          step(0.6, 'Detectando colunas e tipos de dado…');
+          step(0.62, 'Detectando colunas e tipos de dado…');
           setTimeout(function () {
-            st.setDataset(ds);
-            step(0.72, 'Carregando o catálogo de produtos…');
-            MI.catalog.load().then(function () {
-              step(0.82, 'Gerando base transacional demonstrativa…');
-              setTimeout(function () {
-                try { MI.tx.gerarDemo(120000); } catch (e) { console.error('Falha ao gerar transações demo:', e); }
-                step(0.94, 'Montando painéis…');
-                setTimeout(function () {
-                  MI.$('#boot').hidden = true;
-                  MI.$('#app').hidden = false;
-                  app.mount();
-                  step(1, '');
-                }, 50);
-              }, 40);
-            });
+            try {
+              st.setDataset(ds);
+            } catch (e) {
+              console.error(e);
+              clearTimeout(vigia);
+              falhar('Falha ao preparar a base: ' + (e.message || e));
+              return;
+            }
+            step(0.82, 'Carregando o catálogo de produtos…');
+            MI.catalog.load()
+              .catch(function (e) { console.error('Catálogo não carregou:', e); })
+              .then(function () {
+                step(0.95, 'Montando painéis…');
+                setTimeout(mostrarApp, 40);
+              });
           }, 40);
         }, 40);
       }, 60);
+    },
+
+    /* Geração em segundo plano, depois que a interface já está utilizável. */
+    gerarTransacoesDemo: function () {
+      if (MI.tx.has()) return;
+      if (!st.dataset || st.dataset.source !== 'demo' || !MI.catalog.items.length) return;
+      try {
+        const link = MI.tx.gerarDemo(120000);
+        if (link) {
+          app.renderNav();
+          if (app.current === 'consumption') app.renderView();
+        }
+      } catch (e) {
+        console.error('Falha ao gerar transações demonstrativas:', e);
+      }
     },
 
     buildDemo: function () {

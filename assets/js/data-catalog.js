@@ -13,39 +13,78 @@ window.MI = window.MI || {};
 
   /* ================= Persistência (IndexedDB) ================= */
   const DB_NAME = 'mi-10move', STORE = 'kv', DB_VER = 1;
+  const TIMEOUT_MS = 5000;
   let dbp = null;
+  let C_indisponivel = false;
+
+  /* Toda operação de IndexedDB tem prazo. Sem isso, um navegador que não
+     responde ao open() — modo privado no iOS, alguns WebViews de Android,
+     armazenamento bloqueado por política — deixa a promessa pendente para
+     sempre e a aplicação trava na tela de carregamento, sem erro nenhum. */
+  function comPrazo(promessa, rotulo) {
+    return new Promise(function (resolve) {
+      let resolvido = false;
+      const t = setTimeout(function () {
+        if (resolvido) return;
+        resolvido = true;
+        C_indisponivel = true;
+        console.warn('IndexedDB não respondeu em ' + TIMEOUT_MS + 'ms (' + rotulo + '). Seguindo sem armazenamento local.');
+        resolve(undefined);
+      }, TIMEOUT_MS);
+      promessa.then(function (v) {
+        if (resolvido) return;
+        resolvido = true; clearTimeout(t); resolve(v);
+      }, function () {
+        if (resolvido) return;
+        resolvido = true; clearTimeout(t); C_indisponivel = true; resolve(undefined);
+      });
+    });
+  }
+
   function db() {
     if (dbp) return dbp;
     dbp = new Promise(function (resolve, reject) {
       if (!window.indexedDB) return reject(new Error('IndexedDB indisponível'));
-      const req = indexedDB.open(DB_NAME, DB_VER);
+      let req;
+      try { req = indexedDB.open(DB_NAME, DB_VER); }
+      catch (e) { return reject(e); }
       req.onupgradeneeded = function () {
         if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
       };
       req.onsuccess = function () { resolve(req.result); };
-      req.onerror = function () { reject(req.error); };
+      req.onerror = function () { reject(req.error || new Error('Falha ao abrir o IndexedDB')); };
+      /* outra aba segurando a versão anterior: não dá para esperar indefinidamente */
+      req.onblocked = function () { reject(new Error('IndexedDB bloqueado por outra aba')); };
     });
     return dbp;
   }
+
   function idbGet(key) {
-    return db().then(function (d) {
+    return comPrazo(db().then(function (d) {
       return new Promise(function (resolve, reject) {
         const t = d.transaction(STORE, 'readonly').objectStore(STORE).get(key);
         t.onsuccess = function () { resolve(t.result); };
         t.onerror = function () { reject(t.error); };
       });
-    }).catch(function () { return undefined; });
+    }), 'leitura de ' + key);
   }
+
   function idbSet(key, value) {
-    return db().then(function (d) {
+    return comPrazo(db().then(function (d) {
       return new Promise(function (resolve, reject) {
         const t = d.transaction(STORE, 'readwrite').objectStore(STORE).put(value, key);
         t.onsuccess = function () { resolve(true); };
         t.onerror = function () { reject(t.error); };
       });
-    }).catch(function () { return false; });
+    }), 'gravação de ' + key).then(function (v) { return v === undefined ? false : true; });
   }
-  MI.idb = { get: idbGet, set: idbSet };
+  MI.idb = {
+    get: idbGet,
+    set: idbSet,
+    /* true quando o navegador não deixou usar armazenamento local: o catálogo
+       funciona na sessão, mas não sobrevive ao recarregamento. */
+    indisponivel: function () { return C_indisponivel; }
+  };
 
   /* ================= Catálogo padrão ================= */
   /* O catálogo inicial é o cardápio OFICIAL da Smoov, transcrito da peça

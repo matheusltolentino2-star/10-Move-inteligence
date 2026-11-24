@@ -357,6 +357,15 @@ MI.views = MI.views || {};
         ])));
       }
 
+      if (MI.idb.indisponivel()) {
+        root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('warn', [
+          el('strong', { text: 'Este navegador não permitiu armazenamento local. ' }),
+          'O catálogo funciona normalmente nesta sessão, mas alterações e importações ' +
+          'não sobrevivem a um recarregamento da página. Costuma acontecer em janela anônima ' +
+          'ou com cookies e dados de site bloqueados.'
+        ])));
+      }
+
       abas(root);
 
       if (S.aba === 'catalogo') return renderCatalogo(root);
