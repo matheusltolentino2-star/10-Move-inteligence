@@ -92,11 +92,15 @@ window.MI = window.MI || {};
   }
 
   /* ================= Aplicação ================= */
-  function aplicarClientes() {
+  /* Publicar deixou de ser um botão escondido em outra tela: para quem é
+     administrador da Smoov, ele faz parte do Aplicar. O passo mais
+     importante do fluxo não pode depender de o usuário voltar a uma tela que
+     a própria navegação acabou de tirar da frente dele. */
+  function aplicarClientes(publicarDepois) {
     const s = ST.clientes;
     if (!s.ds) return;
     const ds = s.ds;
-    const eraDemo = MI.store.dataset && MI.store.dataset.source === 'demo';
+    const vaiPublicar = publicarDepois !== false && MI.remote && MI.remote.podePublicar();
     const txEraDemo = MI.tx.isDemo();
     reset('clientes');
     MI.store.setDataset(ds);
@@ -109,26 +113,47 @@ window.MI = window.MI || {};
     }
     MI.privacy.log('importou base de clientes', ds.fileName + ' · ' + MI.fmt.int(ds.rows.length) + ' linhas');
     MI.toast('Base “' + ds.name + '” ativa em todos os painéis.', 'ok');
-    MI.app.go('overview');
+    if (vaiPublicar) publicar('clientes', function () { MI.app.go('overview'); });
+    else MI.app.go('overview');
   }
 
-  function aplicarTransacoes() {
+  function aplicarTransacoes(publicarDepois) {
     const s = ST.transacoes;
     if (!s.ex) return;
     if (!s.mapping.produto && !s.mapping.sku) {
       MI.toast('Mapeie ao menos a coluna de nome do produto ou de SKU.', 'error');
       return;
     }
+    const vaiPublicar = publicarDepois !== false && MI.remote && MI.remote.podePublicar();
     try {
       const link = MI.tx.importarDeLinhas(s.ex.rows, s.ex.headers, s.mapping, s.pendente.fileName, s.ds ? s.ds.columns : null);
       MI.privacy.log('importou base de transações', s.pendente.fileName + ' · ' + MI.fmt.int(link.itens) + ' itens');
       reset('transacoes');
       MI.toast(MI.fmt.int(link.itens) + ' itens de pedido carregados · ' +
         MI.fmt.pct(link.taxaProduto, 0) + ' casados com o catálogo.', 'ok');
-      MI.app.go('consumption');
+      if (vaiPublicar) publicar('transacoes', function () { MI.app.go('consumption'); });
+      else MI.app.go('consumption');
     } catch (e) {
       MI.toast(e.message, 'error');
     }
+  }
+
+  /* Botões do rodapé da revisão, iguais nos dois modos. */
+  function botoesAplicar(modo, rotuloPrincipal) {
+    const aplicar = modo === 'clientes' ? aplicarClientes : aplicarTransacoes;
+    const publica = MI.remote && MI.remote.podePublicar();
+    return [
+      U.btn(publica ? rotuloPrincipal + ' e publicar' : rotuloPrincipal, {
+        variant: 'accent', icon: 'check',
+        title: publica ? 'Aplica aqui e envia para a plataforma, para todos verem a mesma base' : null,
+        onClick: function () { aplicar(true); }
+      }),
+      publica ? U.btn('Aplicar só neste navegador', {
+        variant: 'ghost',
+        title: 'A base fica só nesta máquina e some ao recarregar',
+        onClick: function () { aplicar(false); }
+      }) : null
+    ].filter(Boolean);
   }
 
   /* ================= Blocos de interface ================= */
@@ -288,17 +313,29 @@ window.MI = window.MI || {};
           body: el('div', { class: 'locked' }, [
             el('div', { html: MI.icon('lock', 26) }),
             el('h4', { text: 'Sem permissão neste perfil' }),
-            el('p', { text: 'Somente o administrador da Smoov carrega bases. A equipe 10 Move acessa indicadores aprovados; o administrador técnico gerencia o sistema sem acesso aos registros individuais.' })
+            el('p', { text: 'Somente o administrador da Smoov carrega bases. Quem está neste perfil lê a base que ele publicou, mas não envia nem substitui arquivos; o administrador técnico gerencia o sistema sem acesso aos registros individuais.' })
           ])
         })));
         return;
       }
 
-      host.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('ok', [
-        el('strong', { text: 'O arquivo não sai deste navegador. ' }),
-        'Leitura em memória com FileReader e SheetJS, no seu computador. Nenhuma linha vai para servidor, ' +
-        'para a 10 Move ou para qualquer serviço de inteligência artificial.'
-      ])));
+      /* O aviso tem de dizer a verdade para quem está olhando. Para o
+         administrador da Smoov a leitura é local, mas publicar manda a base
+         para o servidor — esconder isso aqui seria o pior lugar possível. */
+      host.appendChild(el('div', { style: 'margin-bottom:14px' },
+        MI.remote && MI.remote.podePublicar()
+          ? U.note('warn', [
+            el('strong', { text: 'A leitura é local; publicar não é. ' }),
+            'O arquivo é lido na memória deste navegador, sem passar por nenhum serviço de inteligência ' +
+            'artificial. Se você escolher publicar, a base fica guardada no servidor e acessível a todos os ' +
+            'membros da organização, inclusive à equipe da 10 Move, com cada carregamento registrado na ' +
+            'trilha de auditoria. Para manter tudo nesta máquina, use “Aplicar só neste navegador”.'
+          ])
+          : U.note('ok', [
+            el('strong', { text: 'O arquivo não sai deste navegador. ' }),
+            'Leitura em memória com FileReader e SheetJS, no seu computador. Nenhuma linha vai para servidor, ' +
+            'para a 10 Move ou para qualquer serviço de inteligência artificial.'
+          ])));
 
       /* ---- base ativa ---- */
       host.appendChild(baseAtiva(modo));
@@ -321,13 +358,10 @@ window.MI = window.MI || {};
       }
 
       /* ---- revisão ---- */
-      host.appendChild(U.section('Revisão antes de aplicar', s.pendente.fileName, [
-        U.btn('Aplicar', {
-          variant: 'accent', icon: 'check',
-          onClick: modo === 'clientes' ? aplicarClientes : aplicarTransacoes
-        }),
-        U.btn('Cancelar', { variant: 'ghost', onClick: function () { reset(modo); MI.app.rerender(); } })
-      ]));
+      host.appendChild(U.section('Revisão antes de aplicar', s.pendente.fileName,
+        botoesAplicar(modo, 'Aplicar').concat([
+          U.btn('Cancelar', { variant: 'ghost', onClick: function () { reset(modo); MI.app.rerender(); } })
+        ])));
 
       const blocos = [seletorAbas(modo), blocoCabecalho(modo)].filter(Boolean);
       host.appendChild(el('div', { class: 'grid' }, blocos));
@@ -337,19 +371,16 @@ window.MI = window.MI || {};
 
       host.appendChild(el('div', { class: 'grid', style: 'margin-top:14px' }, U.card({
         span: 'c12',
-        body: el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;align-items:center' }, [
-          U.btn('Aplicar ' + MI.fmt.int(s.ex.rows.length) + ' linhas', {
-            variant: 'accent', icon: 'check',
-            onClick: modo === 'clientes' ? aplicarClientes : aplicarTransacoes
-          }),
-          U.btn('Cancelar', { variant: 'ghost', onClick: function () { reset(modo); MI.app.rerender(); } })
-        ])
+        body: el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;align-items:center' },
+          botoesAplicar(modo, 'Aplicar ' + MI.fmt.int(s.ex.rows.length) + ' linhas').concat([
+            U.btn('Cancelar', { variant: 'ghost', onClick: function () { reset(modo); MI.app.rerender(); } })
+          ]))
       })));
     }
   };
 
   /* ---------------- Publicação na plataforma ---------------- */
-  function publicar(kind) {
+  function publicar(kind, aoTerminar) {
     const barra = el('i', { style: 'width:4%;background:var(--accent);display:block;height:100%;border-radius:99px' });
     const texto = el('p', { class: 'field__hint', style: 'margin-top:10px', text: 'Preparando…' });
     const aviso = el('div', { style: 'margin-top:12px' });
@@ -383,11 +414,21 @@ window.MI = window.MI || {};
           'Quem entrar na plataforma passa a carregá-la automaticamente, sem reenviar o arquivo.'
         ]));
         MI.toast('Base publicada na plataforma.', 'ok');
-        setTimeout(function () { m.close(); MI.app.rerender(); }, 1600);
+        setTimeout(function () {
+          m.close();
+          if (aoTerminar) aoTerminar(true); else MI.app.rerender();
+        }, 1600);
       })
       .catch(function (e) {
         MI.clear(aviso).appendChild(U.note('crit', [
           el('strong', { text: 'Não foi publicada. ' }), e.message || String(e)
+        ]));
+        MI.clear(texto).appendChild(el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:12px' }, [
+          U.btn('Tentar de novo', { sm: true, variant: 'accent', onClick: function () { m.close(); publicar(kind, aoTerminar); } }),
+          U.btn('Seguir sem publicar', {
+            sm: true, variant: 'ghost',
+            onClick: function () { m.close(); if (aoTerminar) aoTerminar(false); else MI.app.rerender(); }
+          })
         ]));
       });
   }

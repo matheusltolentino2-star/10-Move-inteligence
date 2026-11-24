@@ -40,7 +40,19 @@ MI.views = MI.views || {};
       ]));
 
       /* ---------- Separação de áreas ---------- */
+      /* A separação abaixo continua valendo para o que cada perspectiva
+         MOSTRA. Desde que a base passou a ser publicada inteira, ela deixou
+         de ser barreira de acesso — e dizer isso aqui, e não só na seção de
+         limites, é a diferença entre descrever e enganar. */
       root.appendChild(U.section('Separação de áreas', 'Como a plataforma divide o que é privado e o que é compartilhado'));
+      if (MI.remote && MI.remote.disponivel()) {
+        root.appendChild(el('div', { style: 'margin-bottom:12px' }, U.note('warn', [
+          el('strong', { text: 'A separação abaixo é de apresentação, não de acesso. ' }),
+          'Por decisão das empresas em 24/11/2026, a base publicada é lida por inteiro por todos os membros ' +
+          'da organização, inclusive pela equipe da 10 Move. O que as regras desta tela controlam é o que ' +
+          'cada perspectiva exibe e o que sai nos relatórios.'
+        ])));
+      }
       root.appendChild(el('div', { class: 'grid' }, [
         U.card({
           span: 'c6', title: 'Área privada da Smoov',
@@ -237,26 +249,29 @@ MI.views = MI.views || {};
       }
 
       /* ---------- O que esta versão NÃO garante ---------- */
-      root.appendChild(U.section('O que esta versão não garante', 'Declaração honesta de limites técnicos'));
+      root.appendChild(U.section('O que está garantido e o que não está', 'Declaração honesta, incluindo o que o compartilhamento da base custa'));
       root.appendChild(el('div', { class: 'grid' }, [
         U.card({
           span: 'c6', title: 'Implementado e funcionando',
           body: el('div', { class: 'findings' }, [
-            item('ok', 'Processamento local', 'A planilha é lida e analisada no navegador, com FileReader e SheetJS. Nenhum registro é transmitido.'),
+            item('ok', 'Leitura local da planilha', 'O arquivo é lido e analisado na memória deste navegador, com FileReader e SheetJS. Nada passa por serviço de inteligência artificial.'),
+            item('ok', 'Autenticação real', 'Supabase Auth: sem sessão válida a aplicação não gera nem exibe dado nenhum.'),
+            item('ok', 'Autorização no servidor', 'Row Level Security nega por padrão. Publicar e remover bases é restrito ao administrador da Smoov pelo próprio banco, não pela interface.'),
+            item('ok', 'Isolamento por organização', 'Toda linha carrega a organização e as políticas filtram por ela. Um membro de outra organização não lê esta base.'),
+            item('ok', 'Trilha de auditoria no servidor', 'Tabela que só aceita inserções: cada carregamento da base compartilhada fica registrado com usuário, base e horário.'),
             item('ok', 'Supressão de grupos pequenos', 'Categorias e células abaixo de k são agrupadas em “Suprimido” nos agregados.'),
             item('ok', 'Medição de k-anonimato', 'Cálculo real de classes de equivalência sobre combinações de quase-identificadores.'),
-            item('ok', 'Liberação por indicador', 'A visão 10 Move só exibe o que foi explicitamente aprovado.'),
-            item('ok', 'Bloqueio de microdados', 'Nenhuma perspectiva exporta registros individuais; relatórios contêm apenas agregados.')
+            item('ok', 'Bloqueio de microdados na exportação', 'Nenhuma perspectiva exporta registros individuais; os relatórios em PDF contêm apenas agregados.')
           ])
         }),
         U.card({
-          span: 'c6', title: 'Exige backend para produção',
+          span: 'c6', title: 'Limites desta versão',
           body: el('div', { class: 'findings' }, [
-            item('crit', 'Autenticação real', 'A troca de perspectiva é uma preferência de interface, não um controle de acesso. Qualquer pessoa com a página aberta pode alternar.'),
-            item('crit', 'Autorização no servidor', 'As regras de visibilidade rodam no cliente e podem ser contornadas por quem inspecionar o código.'),
-            item('crit', 'Isolamento por organização', 'Não há separação de dados por empresa, por usuário ou por sessão.'),
-            item('crit', 'Auditoria confiável', 'A trilha de aprovações fica no armazenamento local do navegador e pode ser apagada ou editada pelo próprio usuário.'),
-            item('warn', 'Revisão formal de privacidade', 'Compartilhamento de dados pessoais entre empresas exige base legal, contrato de tratamento e avaliação de impacto sob a LGPD.')
+            item('crit', 'A base bruta é compartilhada', 'Por decisão das empresas em 24/11/2026, ao publicar uma base ela fica acessível por inteiro a todos os membros da organização, inclusive à equipe da 10 Move. A supressão e o k-anonimato protegem os agregados e os relatórios, não o acesso à base.'),
+            item('crit', 'Base legal e contrato de tratamento', 'Compartilhar dados pessoais entre empresas exige base legal, contrato de tratamento e avaliação de impacto sob a LGPD. Isso é decisão das empresas, não do software, e não está resolvido por nada que esteja escrito aqui.'),
+            item('warn', 'A troca de perspectiva é de interface', 'O seletor Smoov / 10 Move / técnico é preferência local e não altera o que o servidor entrega. O que limita acesso de verdade é o papel na organização.'),
+            item('warn', 'Trilha de aprovações local', 'As aprovações de indicadores ficam no armazenamento deste navegador e podem ser apagadas pelo próprio usuário. Só os acessos à base compartilhada vão para a trilha do servidor.'),
+            item('warn', 'Sessão sem saída e sem expiração curta', 'Não existe botão de sair: a sessão continua válida neste navegador até o token expirar.')
           ])
         })
       ]));

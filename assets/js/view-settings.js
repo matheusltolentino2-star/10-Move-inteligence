@@ -190,50 +190,39 @@ MI.views = MI.views || {};
   }
 
   /* ================= Publicação ================= */
+  /* Esta aba descrevia um estado que já passou (nada publicado, nenhum
+     servidor). Mantê-la assim transformaria a tela mais institucional da
+     aplicação em informação falsa, então ela descreve o que está no ar. */
   function renderPublicacao(root) {
-    root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('info', [
-      el('strong', { text: 'Estado atual: aplicação estática, sem servidor. ' }),
-      'Tudo roda no navegador. Isso é o que garante que a planilha não sai da máquina, e é também o que impede ' +
-      'autenticação real. Abaixo está o que já está preparado e o que depende de uma ação sua.'
+    root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note('ok', [
+      el('strong', { text: 'No ar em 10-move-intelligence.vercel.app. ' }),
+      'Arquivos estáticos servidos pela Vercel, login e banco no Supabase. Os planos gratuitos dos dois ' +
+      'serviços atendem este volume e nada foi contratado.'
     ])));
 
-    root.appendChild(U.section('O que já está pronto no repositório', 'Arquivos versionados junto com a aplicação'));
+    root.appendChild(U.section('O que está funcionando', 'Verificado na URL pública, não só no repositório'));
     root.appendChild(el('div', { class: 'grid' }, [
       U.card({
-        span: 'c6', title: 'Preparado e funcionando',
+        span: 'c6', title: 'Em produção',
         body: el('div', { class: 'findings' }, [
-          item('ok', 'Aplicação estática pronta para CDN', 'Sem build, sem dependência de servidor. Qualquer hospedagem de arquivos estáticos serve.'),
-          item('ok', 'vercel.json com cabeçalhos de segurança', 'CSP, HSTS, X-Frame-Options e Referrer-Policy já definidos no repositório.'),
-          item('ok', 'Esquema do Supabase com RLS', 'supabase/schema.sql cria organizações, membros, papéis e indicadores aprovados, com Row Level Security negando por padrão.'),
-          item('ok', 'Módulo de autenticação', 'assets/js/auth-supabase.js implementa login, sessão e carregamento de papel; fica inativo enquanto não houver chaves.'),
-          item('ok', 'Processamento local preservado', 'Mesmo publicada, a planilha continua sendo lida no navegador. Só agregados aprovados vão para o servidor.')
+          item('ok', 'URL HTTPS pública', 'Deploy a partir do repositório no GitHub: cada envio de código atualiza a aplicação, sem etapa de build.'),
+          item('ok', 'Cabeçalhos de segurança ativos', 'CSP, HSTS, X-Frame-Options e Referrer-Policy aplicados pela Vercel, conferidos em produção sem nenhuma violação de CSP.'),
+          item('ok', 'Login real', 'Supabase Auth. Sem sessão válida nada é gerado nem exibido — nem a base demonstrativa.'),
+          item('ok', 'Papéis e isolamento por organização', 'Row Level Security nega por padrão e filtra por organização. Só o administrador da Smoov publica ou remove bases.'),
+          item('ok', 'Base compartilhada', 'Quem publica sobe o arquivo uma vez; os outros membros carregam a mesma base do servidor, sem reenviar nada.'),
+          item('ok', 'Trilha de auditoria no servidor', 'Tabela que só aceita inserções. Cada carregamento da base compartilhada fica registrado com usuário, base e horário.')
         ])
       }),
       U.card({
-        span: 'c6', title: 'Depende de uma ação sua',
+        span: 'c6', title: 'Depende de uma decisão sua',
         body: el('div', { class: 'findings' }, [
-          item('warn', 'Conectar a conta Vercel ou Supabase', 'Os conectores existem no catálogo do Claude mas não estão conectados nesta conversa. O da Vercel, mesmo conectado, só lê projetos — não faz deploy.'),
-          item('warn', 'Criar o projeto Supabase', 'Com o conector Supabase ativo, o projeto e o esquema podem ser criados daqui. Sem ele, é um projeto novo no painel e colar duas chaves.'),
-          item('warn', 'Publicar na Vercel', 'Importar este repositório na Vercel pelo painel, ou rodar o deploy com um token de conta.'),
-          item('crit', 'Autorização de custo', 'Nada foi contratado nem publicado. Os planos gratuitos de Vercel e Supabase atendem este volume, mas a decisão é sua.')
+          item('crit', 'Base legal e contrato de tratamento', 'Desde 24/11/2026 a base completa é compartilhada entre a Smoov e a 10 Move. Usar dados reais de clientes exige base legal, contrato de tratamento e avaliação de impacto sob a LGPD. É decisão das empresas, não do software.'),
+          item('warn', 'Sair da conta e expiração de sessão', 'Não existe botão de sair: a sessão continua válida neste navegador até o token expirar. Em computador compartilhado, isso importa.'),
+          item('warn', 'Proteção contra senhas vazadas', 'O Supabase pode recusar senhas que apareceram em vazamentos conhecidos. A opção está desligada e vale ativá-la antes de criar as contas definitivas.'),
+          item('warn', 'Repositório público', 'O código fica visível no GitHub. Não há segredo nele — a chave publicável do Supabase é pública por natureza e a proteção real é o RLS —, mas tornar o repositório privado é um clique.')
         ])
       })
     ]));
-
-    root.appendChild(U.section('Caminho mais curto', 'Três passos, nenhum deles exige escrever código'));
-    root.appendChild(el('div', { class: 'grid' }, U.card({
-      span: 'c12',
-      body: U.table(
-        [{ label: 'Passo' }, { label: 'O que você faz' }, { label: 'O que fica pronto' }],
-        [
-          ['1', 'Conectar os conectores Vercel e Supabase em /mcp', 'Eu passo a enxergar projetos e posso criar o banco'],
-          ['2', 'Autorizar a criação do projeto Supabase (plano gratuito)', 'Banco, autenticação e RLS aplicados a partir do schema.sql'],
-          ['3', 'Importar o repositório na Vercel e colar as duas chaves públicas do Supabase', 'URL HTTPS pública, com login real e isolamento por organização'],
-          ['—', 'Enquanto isso', 'A aplicação já está publicada como Artifact, com link HTTPS que abre em qualquer dispositivo']
-        ].map(function (r) { return { cells: [{ v: r[0] }, { v: r[1] }, { v: r[2] }] }; })
-      ),
-      foot: 'Nenhuma destas etapas foi executada: não há conta conectada, projeto criado nem deploy feito.'
-    })));
   }
 
   function item(nivel, titulo, texto) {
