@@ -34,17 +34,17 @@ MI.views = MI.views || {};
         const conc = S.concentration(rows, '_uf');
         const real = dUf.filter(function (e) { return !e.suppressed; });
 
-        root.appendChild(U.section('Estados', 'Clique em um estado no cartograma para filtrar toda a plataforma'));
+        root.appendChild(U.section('Unidades da federação', 'Clique em uma unidade no mapa para filtrar toda a plataforma'));
         root.appendChild(el('div', { class: 'grid' }, [
           U.guarded('geo.uf', function () {
             return U.card({
-              span: 'c7', title: 'Cartograma do Brasil',
-              sub: 'Grade esquemática: cada célula é um estado, a cor indica o volume relativo',
-              body: MI.geo.cartogram(dUf, {
+              span: 'c7', title: 'Mapa do Brasil',
+              sub: 'A cor indica o volume de registros em cada unidade da federação',
+              body: MI.geo.mapa(dUf, {
                 selected: st.filters._uf ? Array.from(st.filters._uf.values) : [],
                 onSelect: function (uf) { MI.app.toggleCatValue('_uf', uf); }
               }),
-              foot: 'Representação esquemática para leitura rápida de concentração. Não é um mapa cartográfico e não usa coordenadas.'
+              foot: 'Malha oficial do IBGE em projeção cônica equivalente: a área desenhada é proporcional à área real. São 26 estados mais o Distrito Federal.'
             });
           }),
           U.guarded('geo.concentracao', function () {
@@ -53,10 +53,10 @@ MI.views = MI.views || {};
               sub: 'Quanto a base depende de poucas praças',
               body: [
                 U.statline([
-                  { k: 'Maior estado', v: real.length ? MI.fmt.pct(conc.top1, 1) : '—' },
-                  { k: 'Top 5 estados', v: MI.fmt.pct(conc.top5, 1) },
-                  { k: 'Top 10 estados', v: MI.fmt.pct(conc.top10, 1) },
-                  { k: 'Estados p/ 80%', v: String(conc.n80) },
+                  { k: 'Maior UF', v: real.length ? MI.fmt.pct(conc.top1, 1) : '—' },
+                  { k: 'Top 5 UFs', v: MI.fmt.pct(conc.top5, 1) },
+                  { k: 'Top 10 UFs', v: MI.fmt.pct(conc.top10, 1) },
+                  { k: 'UFs p/ 80%', v: String(conc.n80) },
                   { k: 'HHI', v: MI.fmt.dec(conc.hhi, 3) }
                 ]),
                 el('div', { style: 'margin-top:14px' }, U.note(
@@ -64,10 +64,10 @@ MI.views = MI.views || {};
                   [
                     el('strong', { text: conc.hhi > 0.25 ? 'Concentração alta. ' : conc.hhi > 0.15 ? 'Concentração moderada. ' : 'Base distribuída. ' }),
                     'O índice Herfindahl-Hirschman de ' + MI.fmt.dec(conc.hhi, 3) + ' indica que ' +
-                    (conc.hhi > 0.25 ? 'a operação depende fortemente de poucos estados.'
+                    (conc.hhi > 0.25 ? 'a operação depende fortemente de poucas unidades da federação.'
                       : conc.hhi > 0.15 ? 'há dependência relevante das maiores praças.'
-                        : 'nenhum estado isolado domina a base.') +
-                    ' ' + conc.n80 + ' de ' + conc.categories + ' estados cobrem 80% dos registros.'
+                        : 'nenhuma unidade isolada domina a base.') +
+                    ' ' + conc.n80 + ' de ' + conc.categories + ' unidades da federação cobrem 80% dos registros.'
                   ]
                 )),
                 el('div', { style: 'margin-top:14px' }, U.bars(MI.privacy.guardDist(S.dist(rows, '_regiao', { order: MI.geo.REGIOES })), { compact: true }))
@@ -92,7 +92,7 @@ MI.views = MI.views || {};
             tRows.push({
               cells: [
                 { v: '—', masked: true }, { v: 'Suprimido (< ' + MI.privacy.k + ' registros)', masked: true },
-                { v: dUf.suppressedGroups + ' estados', masked: true },
+                { v: dUf.suppressedGroups + ' unidades', masked: true },
                 { v: MI.fmt.int(dUf.suppressedCount), masked: true }, { v: '—', masked: true }, { v: '100,0%', masked: true }
               ]
             });
@@ -168,7 +168,7 @@ MI.views = MI.views || {};
         if (d.length) {
           leituras.push({
             kind: 'fato', tema: 'Cobertura',
-            titulo: d.length + ' estados com presença registrada',
+            titulo: d.length + ' unidades da federação com presença registrada',
             texto: 'Entre eles, ' + d[0].label + ' lidera com ' + MI.fmt.int(d[0].value) + ' registros (' +
               MI.fmt.pct(d[0].pct, 1) + '). O menor estado com volume acima do limite de privacidade é ' +
               d[d.length - 1].label + ', com ' + MI.fmt.int(d[d.length - 1].value) + '.'
@@ -180,7 +180,7 @@ MI.views = MI.views || {};
         if (faltantes.length) {
           leituras.push({
             kind: 'fato', tema: 'Cobertura',
-            titulo: faltantes.length + ' estados sem registros no recorte',
+            titulo: faltantes.length + ' unidades da federação sem registros no recorte',
             texto: 'Sem presença detectada em: ' + faltantes.join(', ') + '. ' +
               'Isso descreve a base atual; não indica, por si, ausência de mercado.'
           });
@@ -190,7 +190,7 @@ MI.views = MI.views || {};
             kind: 'hipotese', tema: 'Expansão',
             titulo: 'Dependência das praças líderes merece atenção comercial',
             texto: 'Com HHI de ' + MI.fmt.dec(conc.hhi, 3) + ' e ' + MI.fmt.pct(conc.top5, 1) +
-              ' nos cinco maiores estados, uma oscilação nas praças líderes afeta o resultado agregado. ' +
+              ' nas cinco maiores unidades da federação, uma oscilação nas praças líderes afeta o resultado agregado. ' +
               'Avaliar esta hipótese exige dados de mercado externos (população, concorrência, custo de operação) que não estão nesta base.'
           });
         }

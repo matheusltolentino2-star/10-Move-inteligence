@@ -23,19 +23,6 @@ window.MI = window.MI || {};
     PR: 'Sul', RS: 'Sul', SC: 'Sul'
   };
 
-  /* Cartograma esquemático: posição de cada UF em uma grade 8x7.
-     Aproximação visual do mapa do Brasil — não é cartografia. */
-  MI.UF_GRID = {
-    RR: [4, 1], AP: [5, 1],
-    AM: [3, 2], PA: [4, 2], MA: [5, 2], CE: [6, 2], RN: [7, 2],
-    AC: [2, 3], RO: [3, 3], MT: [4, 3], TO: [5, 3], PI: [6, 3], PB: [7, 3],
-    GO: [4, 4], BA: [5, 4], PE: [6, 4], AL: [7, 4],
-    MS: [3, 5], DF: [4, 5], MG: [5, 5], SE: [6, 5], ES: [7, 5],
-    PR: [3, 6], SP: [4, 6], RJ: [5, 6],
-    RS: [2, 7], SC: [3, 7]
-  };
-  MI.UF_GRID_COLS = 8;
-  MI.UF_GRID_ROWS = 7;
 
   /* Mapa nome completo -> sigla (para normalizar importações) */
   MI.UF_POR_NOME = (function () {

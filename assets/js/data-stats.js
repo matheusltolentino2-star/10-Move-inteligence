@@ -384,8 +384,8 @@ window.MI = window.MI || {};
         f.push({
           kind: 'fato', tema: 'Geografia',
           titulo: d[0].label + ' responde por ' + MI.fmt.pct(d[0].pct, 1) + ' dos registros',
-          texto: 'Os 5 maiores estados somam ' + MI.fmt.pct(c.top5, 1) + ' da base, distribuída em ' +
-            c.categories + ' estados. ' + c.n80 + ' estados bastam para cobrir 80% dos registros.'
+          texto: 'As 5 maiores unidades da federação somam ' + MI.fmt.pct(c.top5, 1) + ' da base, distribuída em ' +
+            c.categories + ' unidades. ' + c.n80 + ' bastam para cobrir 80% dos registros.'
         });
       }
     }

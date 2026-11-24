@@ -66,7 +66,7 @@ MI.views = MI.views || {};
         const real = d.filter(function (e) { return !e.suppressed; });
         kpis.push(U.kpi({
           label: 'Cobertura geográfica', icon: 'map', span: 'c3',
-          value: MI.fmt.int(real.length), unit: real.length === 1 ? 'estado' : 'estados',
+          value: MI.fmt.int(real.length), unit: real.length === 1 ? 'UF' : 'UFs',
           hint: real.length ? 'Maior: ' + real[0].label + ' (' + MI.fmt.pct(real[0].pct, 1) + ')' : ''
         }));
       }
