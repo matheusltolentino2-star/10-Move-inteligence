@@ -615,7 +615,15 @@ MI.views = MI.views || {};
       titulo: 'O que estes dados não permitem afirmar',
       texto: 'Não há custo por produto, margem, ruptura de estoque nem registro de produtos indisponíveis no momento da venda. ' +
         'Portanto: rentabilidade por item, demanda não atendida e elasticidade de preço não podem ser calculadas aqui. ' +
-        (l.taxaProduto < 0.95 ? 'Além disso, ' + MI.fmt.pct(1 - l.taxaProduto, 1) + ' dos itens vendidos não tem correspondência no catálogo e fica fora das análises por categoria.' : '')
+        /* Dizer que eles ficam "fora das análises por categoria" só é verdade
+           quando a planilha não traz coluna de categoria: quando traz, a
+           categoria vem dela e o item entra normalmente. */
+        (l.taxaProduto < 0.95
+          ? 'Além disso, ' + MI.fmt.pct(1 - l.taxaProduto, 1) + ' dos itens vendidos não tem correspondência no cardápio. ' +
+          (MI.tx.mapping && MI.tx.mapping.categoria
+            ? 'Eles continuam nas contagens e na categoria que veio da própria planilha, mas sem tamanho padronizado, preço de tabela nem ingredientes.'
+            : 'Eles continuam nas contagens de volume e receita, mas sem categoria, tamanho padronizado, preço de tabela nem ingredientes.')
+          : '')
     });
 
     return [

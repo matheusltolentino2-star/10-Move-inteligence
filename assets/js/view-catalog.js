@@ -872,6 +872,96 @@ MI.views = MI.views || {};
       ]));
     }
 
+    /* produtos que a própria venda trouxe
+       -----------------------------------------------------------------
+       Eles já estão valendo nas análises; esta tela existe para separar o
+       que veio do cardápio oficial do que foi deduzido das transações, e
+       para apontar os que parecem ser outro nome de um produto que já
+       existe — o caso em que o automático erraria calado. */
+    const detectados = C.detectados();
+    if (detectados.length) {
+      const duvidosos = detectados.filter(function (p) { return p.parecidoCom; });
+      root.appendChild(U.section('Detectados nas vendas',
+        MI.fmt.int(detectados.length) + ' produtos entraram sozinhos a partir das transações'));
+      root.appendChild(el('div', { class: 'grid' }, U.card({
+        span: 'c12',
+        tools: podeEditar() ? [
+          U.btn('Confirmar todos', {
+            sm: true, variant: 'accent', icon: 'check',
+            disabled: !!duvidosos.length,
+            title: duvidosos.length
+              ? 'Resolva antes os ' + duvidosos.length + ' que parecem repetir um produto existente'
+              : null,
+            onClick: function () {
+              detectados.forEach(function (p) { C.confirmar(p.id); });
+              MI.toast(MI.fmt.int(detectados.length) + ' produtos confirmados no cardápio.', 'ok');
+              MI.app.rerender();
+            }
+          })
+        ] : null,
+        body: [
+          U.note(duvidosos.length ? 'warn' : null, [
+            el('strong', { text: 'Já estão valendo nas análises. ' }),
+            'Nome, tamanho, categoria e preço vieram das próprias transações — o preço é a mediana do que foi ' +
+            'cobrado, não um preço de tabela. Ingredientes, proteína e selos ficaram vazios porque a venda não ' +
+            'informa isso.' +
+            (duvidosos.length === 1
+              ? ' Um deles parece ser outro nome de um produto que já existe: confira antes de confirmar, ' +
+              'senão o mesmo item fica contado duas vezes.'
+              : duvidosos.length
+                ? ' ' + MI.fmt.int(duvidosos.length) + ' deles parecem ser outro nome de produtos que já existem: ' +
+                'confira antes de confirmar, senão o mesmo item fica contado duas vezes.'
+                : '')
+          ]),
+          el('div', { style: 'margin-top:14px' }, U.table(
+            [{ label: 'Produto' }, { label: 'Tamanho' }, { label: 'Categoria' },
+            { label: 'Preço mediano', num: true }, { label: 'Itens', num: true },
+            { label: 'Parece ser' }, { label: '' }],
+            detectados.slice(0, 60).map(function (p) {
+              return {
+                cells: [
+                  { v: p.nome },
+                  { v: p.tamanho || '—' },
+                  { v: p.categoria },
+                  { v: p.preco == null ? '—' : MI.fmt.money(p.preco), num: true },
+                  { v: MI.fmt.int(p.vistos || 0), num: true },
+                  {
+                    v: p.parecidoCom || '—',
+                    risk: !!p.parecidoCom,
+                    title: p.parecidoCom
+                      ? 'Semelhança de ' + MI.fmt.pct(p.parecencaScore, 0) + ' com um produto do cardápio'
+                      : null
+                  },
+                  {
+                    v: podeEditar()
+                      ? el('div', { style: 'display:flex;gap:5px;justify-content:flex-end' }, [
+                        el('button', {
+                          class: 'icon-btn', title: 'Completar o cadastro',
+                          html: MI.icon('spark', 14), onclick: function () { editor(p); }
+                        }),
+                        el('button', {
+                          class: 'icon-btn', title: 'Confirmar como está',
+                          html: MI.icon('check', 14),
+                          onclick: function () { C.confirmar(p.id); MI.toast('“' + p.nome + '” confirmado.', 'ok'); MI.app.rerender(); }
+                        }),
+                        el('button', {
+                          class: 'icon-btn icon-btn--danger', title: 'Remover do catálogo',
+                          html: MI.icon('trash', 14), onclick: function () { confirmarRemocao(p); }
+                        })
+                      ])
+                      : '—'
+                  }
+                ]
+              };
+            })
+          )),
+          detectados.length > 60
+            ? el('p', { class: 'field__hint', style: 'margin-top:10px', text: 'Mostrando 60 de ' + MI.fmt.int(detectados.length) + '. Os demais estão na aba Catálogo.' })
+            : null
+        ]
+      })));
+    }
+
     /* cobertura pelas transações */
     if (MI.tx.has()) {
       const l = MI.tx.link;

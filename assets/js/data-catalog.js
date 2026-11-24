@@ -11,6 +11,14 @@ window.MI = window.MI || {};
 (function (MI) {
   'use strict';
 
+  function mediana(v) {
+    if (!v || !v.length) return null;
+    const s = v.slice().sort(function (a, b) { return a - b; });
+    const m = Math.floor(s.length / 2);
+    const x = s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    return Math.round(x * 100) / 100;
+  }
+
   /* ================= Persistência (IndexedDB) ================= */
   const DB_NAME = 'mi-10move', STORE = 'kv', DB_VER = 1;
   const TIMEOUT_MS = 5000;
@@ -171,6 +179,118 @@ window.MI = window.MI || {};
       C.items = C.items.filter(function (x) { return x.id !== id; });
       C.reindex(); C.save(); C.emit();
     },
+
+    /* Produtos vendidos que o cardápio não tem entram sozinhos.
+       -----------------------------------------------------------------
+       Quem sobe a planilha não vai cadastrar dezenas de sabores à mão para
+       a análise funcionar, e um produto fora do cardápio não é erro de
+       digitação: é algo que a loja vende e o cardápio não registrou.
+
+       Aproveita o que o próprio item traz — nome, tamanho, código,
+       categoria da transação e o preço efetivamente praticado. O resto
+       nasce vazio, e o produto nasce marcado como NÃO CONFERIDO: a tela
+       precisa poder dizer o que veio do cardápio oficial e o que foi
+       deduzido das vendas.
+
+       Quando o nome se parece com algo que já existe, a semelhança fica
+       registrada no produto novo. É o caso de "Açaí c/ Whey" contra
+       "Açaí com Whey": perto demais para ignorar, longe demais para o
+       motor casar sozinho sem risco de errar. Em vez de decidir por conta
+       própria, ele cria e avisa de quem desconfia. */
+    absorver: function (itens) {
+      const vazio = { criados: 0, novos: [], parecidos: 0 };
+      if (!itens || !itens.length) return vazio;
+
+      const candidatos = new Map();
+      for (let i = 0; i < itens.length; i++) {
+        const it = itens[i];
+        if (it._prod) continue;                                  /* já casou */
+        const nome = String(it._nome || '').trim();
+        const sku = String(it._sku || '').trim();
+        if (!nome && !sku) continue;                             /* sem nome e sem código não dá */
+        const chave = MI.slug(nome || sku) + '|' + MI.slug(it._tamanho || '');
+        let c = candidatos.get(chave);
+        if (!c) {
+          c = { nome: nome || sku, sku: sku, tamanho: it._tamanho || '', categoria: '', precos: [], vistos: 0 };
+          candidatos.set(chave, c);
+        }
+        c.vistos++;
+        if (!c.categoria && it._catBruta) c.categoria = String(it._catBruta).trim();
+        if (!c.sku && sku) c.sku = sku;
+        const unit = (it._valorUnit != null && isFinite(it._valorUnit) && it._valorUnit > 0)
+          ? it._valorUnit
+          : (it._valor != null && it._qtd ? it._valor / it._qtd : null);
+        if (unit != null && isFinite(unit) && unit > 0) c.precos.push(unit);
+      }
+      if (!candidatos.size) return vazio;
+
+      const existentes = {};
+      C.items.forEach(function (p) { existentes[p.id] = true; });
+
+      const novos = [];
+      let parecidos = 0;
+      candidatos.forEach(function (c) {
+        const id = 'auto-' + MI.slug(c.nome) + (c.tamanho ? '-' + MI.slug(c.tamanho) : '');
+        if (existentes[id]) return;
+        const perto = C.maisParecido(c.nome);
+        if (perto) parecidos++;
+        novos.push({
+          id: id,
+          sku: c.sku,
+          nome: c.nome,
+          categoria: c.categoria || 'Não classificado',
+          subcategoria: '',
+          tamanho: c.tamanho,
+          /* mediana, não média: um troco ou uma promoção isolada não deve
+             virar o preço de tabela do produto */
+          preco: mediana(c.precos),
+          proteina: null,
+          kcal: null,
+          ingredientes: '',
+          alergenicos: '',
+          tags: '',
+          descricao: '',
+          imagem: null,
+          disponivel: true,
+          regiao: '',
+          origem: 'auto',
+          conferido: false,
+          vistos: c.vistos,
+          parecidoCom: perto ? perto.produto.nome + (perto.produto.tamanho ? ' · ' + perto.produto.tamanho : '') : null,
+          parecencaScore: perto ? perto.score : null,
+          fonte: 'Detectado nas transações importadas'
+        });
+      });
+
+      if (!novos.length) return vazio;
+      C.items = C.items.concat(novos);
+      C.reindex(); C.save(); C.emit();
+      return { criados: novos.length, novos: novos, parecidos: parecidos };
+    },
+
+    /* Melhor semelhança abaixo do corte do match(): serve para avisar, não
+       para casar. */
+    maisParecido: function (nome) {
+      const toks = new Set(MI.slug(nome).split('_').filter(Boolean));
+      if (!toks.size) return null;
+      let melhor = null, melhorScore = 0;
+      C.items.forEach(function (p) {
+        if (p.origem === 'auto') return;
+        const pt = MI.slug(p.nome).split('_').filter(Boolean);
+        if (!pt.length) return;
+        let inter = 0;
+        pt.forEach(function (t) { if (toks.has(t)) inter++; });
+        const score = (2 * inter) / (pt.length + toks.size);
+        if (score > melhorScore) { melhorScore = score; melhor = p; }
+      });
+      return melhor && melhorScore >= 0.45 ? { produto: melhor, score: melhorScore } : null;
+    },
+
+    detectados: function () {
+      return C.items.filter(function (p) { return p.origem === 'auto' && !p.conferido; });
+    },
+
+    confirmar: function (id) { return C.update(id, { conferido: true }); },
 
     /* ---------- Índices para correspondência com transações ---------- */
     bySku: {},

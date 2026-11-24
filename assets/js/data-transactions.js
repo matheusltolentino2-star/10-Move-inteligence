@@ -225,7 +225,28 @@ window.MI = window.MI || {};
     T.mapping = mapping || {};
     if (extras) { T.headers = extras.headers || []; T.columns = extras.columns || []; }
     T.relink();
+
+    /* O que a loja vendeu e o cardápio não tem entra sozinho no catálogo, e
+       o casamento é refeito. Transações demonstrativas ficam de fora: elas
+       são fictícias e contaminariam o cardápio real com nomes inventados. */
+    T.ultimaAbsorcao = null;
+    if (T.autoCatalogar && source !== 'demo' && MI.catalog && MI.catalog.absorver) {
+      try {
+        const r = MI.catalog.absorver(T.items);
+        if (r.criados) { T.ultimaAbsorcao = r; T.relink(); }
+      } catch (e) {
+        console.error('Falha ao catalogar produtos novos:', e);
+      }
+    }
     T.emit();
+  };
+
+  /* Ligado por padrão: sem isto, a análise por produto depende de alguém
+     cadastrar à mão tudo o que o cardápio não tem. */
+  T.autoCatalogar = MI.storage.get('autoCatalogar', true);
+  T.setAutoCatalogar = function (v) {
+    T.autoCatalogar = !!v;
+    MI.storage.set('autoCatalogar', T.autoCatalogar);
   };
 
   /* ================= Recorte: respeita os filtros globais de clientes ================= */

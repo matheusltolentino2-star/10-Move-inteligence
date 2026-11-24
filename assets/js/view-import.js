@@ -129,8 +129,13 @@ window.MI = window.MI || {};
       const link = MI.tx.importarDeLinhas(s.ex.rows, s.ex.headers, s.mapping, s.pendente.fileName, s.ds ? s.ds.columns : null);
       MI.privacy.log('importou base de transações', s.pendente.fileName + ' · ' + MI.fmt.int(link.itens) + ' itens');
       reset('transacoes');
+      const abs = MI.tx.ultimaAbsorcao;
       MI.toast(MI.fmt.int(link.itens) + ' itens de pedido carregados · ' +
-        MI.fmt.pct(link.taxaProduto, 0) + ' casados com o catálogo.', 'ok');
+        MI.fmt.pct(link.taxaProduto, 0) + ' casados com o catálogo.' +
+        (abs && abs.criados
+          ? ' ' + MI.fmt.int(abs.criados) + ' produtos novos entraram no cardápio sozinhos' +
+          (abs.parecidos ? ' (' + abs.parecidos + ' a conferir em Cardápio & Produtos › Qualidade e cobertura)' : '') + '.'
+          : ''), 'ok');
       if (vaiPublicar) publicar('transacoes', function () { MI.app.go('consumption'); });
       else MI.app.go('consumption');
     } catch (e) {
