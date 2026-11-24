@@ -70,6 +70,29 @@ window.MI = window.MI || {};
       });
     },
 
+    /* Sair de verdade. A ordem importa: a trilha de auditoria é escrita
+       enquanto ainda existe sessão, porque depois do signOut o servidor
+       recusa a escrita — e uma saída que não fica registrada deixa um buraco
+       justamente na trilha que diz quem acessou a base compartilhada. */
+    sair: function (motivo) {
+      const registrar = A.autenticado()
+        ? A.auditar('encerrou a sessão', motivo || 'saída manual')
+        : Promise.resolve(true);
+      return registrar
+        .catch(function () { return false; })
+        .then(function () { return A.signOut(); })
+        .catch(function (e) {
+          /* Se o servidor não responder, a sessão local cai do mesmo jeito:
+             ficar preso dentro da aplicação é pior que sair sem confirmar. */
+          console.error('Falha ao encerrar no servidor:', e);
+          A.user = null; A.role = null; A.org = null;
+        })
+        .then(function () {
+          if (MI.app && MI.app.encerrar) MI.app.encerrar(motivo);
+          return true;
+        });
+    },
+
     autenticado: function () { return !!(A.enabled && A.user && A.role); },
     /* Com autenticação ativa o perfil vem do servidor e não pode ser trocado. */
     perfilTravado: function () { return A.autenticado(); },
@@ -141,10 +164,14 @@ window.MI = window.MI || {};
         A.client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
           auth: { persistSession: true, autoRefreshToken: true }
         });
+        /* Sessão perdida por qualquer motivo — saída, token expirado, troca
+           de conta em outra aba — devolve a tela de acesso. Antes isto só
+           redesenhava a interface, deixando a base à mostra sem sessão. */
         A.client.auth.onAuthStateChange(function (_evt, session) {
           if (!session) {
             A.user = null; A.role = null; A.org = null;
-            if (MI.app && MI.app.rerender) MI.app.rerender();
+            if (MI.app && MI.app.encerrar) MI.app.encerrar('sessão encerrada');
+            else if (MI.app && MI.app.rerender) MI.app.rerender();
           }
         });
         return A.client.auth.getSession();
@@ -269,9 +296,10 @@ window.MI = window.MI || {};
           aviso
         ]),
         el('div', { style: 'margin-top:16px' }, U.note(null, [
-          el('strong', { text: 'Seu arquivo continua local. ' }),
-          'O login controla quem acessa quais indicadores. A planilha de clientes nunca é enviada ao servidor: ' +
-          'ela é lida no seu navegador, como antes.'
+          el('strong', { text: 'A planilha é lida no seu navegador. ' }),
+          'O administrador da Smoov decide, a cada importação, se a base fica só na máquina dele ou se é ' +
+          'publicada na plataforma para todos os membros da organização. Cada acesso a uma base publicada ' +
+          'fica registrado na trilha de auditoria.'
         ]))
       ]
     })));

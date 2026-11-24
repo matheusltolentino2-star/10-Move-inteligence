@@ -200,6 +200,16 @@ window.MI = window.MI || {};
       this.emit('dataset', ds);
     },
 
+    /* Tira a base da memória. Usado ao sair: os registros nunca chegam a
+       ser gravados em disco, mas continuariam na tela de quem assumisse o
+       computador em seguida. */
+    limpar: function () {
+      this.dataset = null;
+      this.filters = {};
+      this.rows = [];
+      this.emit('dataset', null);
+    },
+
     has: function (derivedId) { return !!(this.dataset && this.dataset.available[derivedId]); },
     role: function (key) { return this.dataset ? this.dataset.roles[key] : null; },
     column: function (key) {

@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="assets/css/app.css?v=20261125c">
+<link rel="stylesheet" href="assets/css/app.css?v=20261125d">
 
 <!-- Captura de falhas ANTES de qualquer script da aplicação.
      Se um arquivo não carregar ou não for interpretado, nada do app existe —
@@ -93,6 +93,13 @@
     <nav class="nav" id="nav" aria-label="Seções da plataforma"></nav>
 
     <div class="sidebar__foot">
+      <div class="sessao" id="sessao" hidden>
+        <div class="sessao__quem">
+          <span class="sessao__email" id="sessao-email"></span>
+          <span class="sessao__papel" id="sessao-papel"></span>
+        </div>
+        <button class="sessao__sair" id="btn-sair" type="button" aria-label="Encerrar a sessão e voltar à tela de acesso">Sair</button>
+      </div>
       <div class="persp">
         <div class="persp__label">Perspectiva de acesso</div>
         <div class="persp__switch persp__switch--3" role="group" aria-label="Alternar perfil de acesso">
@@ -166,37 +173,37 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
 <!-- ===================== Aplicação ===================== -->
-<script src="assets/js/core.js?v=20261125c"></script>
-<script src="assets/js/data-cities.js?v=20261125c"></script>
-<script src="assets/js/data-synthetic.js?v=20261125c"></script>
-<script src="assets/js/data-schema.js?v=20261125c"></script>
-<script src="assets/js/data-store.js?v=20261125c"></script>
-<script src="assets/js/data-stats.js?v=20261125c"></script>
-<script src="assets/js/data-privacy.js?v=20261125c"></script>
-<script src="assets/js/data-import.js?v=20261125c"></script>
-<script src="assets/js/data-catalog-smoov.js?v=20261125c"></script>
-<script src="assets/js/data-catalog.js?v=20261125c"></script>
-<script src="assets/js/data-transactions.js?v=20261125c"></script>
-<script src="assets/js/data-txstats.js?v=20261125c"></script>
-<script src="assets/js/ui-charts.js?v=20261125c"></script>
-<script src="assets/js/ui-components.js?v=20261125c"></script>
-<script src="assets/js/data-geo-brasil.js?v=20261125c"></script>
-<script src="assets/js/ui-geo.js?v=20261125c"></script>
-<script src="assets/js/view-overview.js?v=20261125c"></script>
-<script src="assets/js/view-profile.js?v=20261125c"></script>
-<script src="assets/js/view-geography.js?v=20261125c"></script>
-<script src="assets/js/view-behavior.js?v=20261125c"></script>
-<script src="assets/js/view-segmentation.js?v=20261125c"></script>
-<script src="assets/js/view-catalog.js?v=20261125c"></script>
-<script src="assets/js/view-consumption.js?v=20261125c"></script>
-<script src="assets/js/view-commercial.js?v=20261125c"></script>
-<script src="assets/js/view-import.js?v=20261125c"></script>
-<script src="assets/js/view-reports.js?v=20261125c"></script>
-<script src="assets/js/view-governance.js?v=20261125c"></script>
-<script src="assets/js/view-settings.js?v=20261125c"></script>
-<script src="assets/js/auth-supabase.js?v=20261125c"></script>
-<script src="assets/js/data-remote.js?v=20261125c"></script>
-<script src="assets/js/app.js?v=20261125c"></script>
+<script src="assets/js/core.js?v=20261125d"></script>
+<script src="assets/js/data-cities.js?v=20261125d"></script>
+<script src="assets/js/data-synthetic.js?v=20261125d"></script>
+<script src="assets/js/data-schema.js?v=20261125d"></script>
+<script src="assets/js/data-store.js?v=20261125d"></script>
+<script src="assets/js/data-stats.js?v=20261125d"></script>
+<script src="assets/js/data-privacy.js?v=20261125d"></script>
+<script src="assets/js/data-import.js?v=20261125d"></script>
+<script src="assets/js/data-catalog-smoov.js?v=20261125d"></script>
+<script src="assets/js/data-catalog.js?v=20261125d"></script>
+<script src="assets/js/data-transactions.js?v=20261125d"></script>
+<script src="assets/js/data-txstats.js?v=20261125d"></script>
+<script src="assets/js/ui-charts.js?v=20261125d"></script>
+<script src="assets/js/ui-components.js?v=20261125d"></script>
+<script src="assets/js/data-geo-brasil.js?v=20261125d"></script>
+<script src="assets/js/ui-geo.js?v=20261125d"></script>
+<script src="assets/js/view-overview.js?v=20261125d"></script>
+<script src="assets/js/view-profile.js?v=20261125d"></script>
+<script src="assets/js/view-geography.js?v=20261125d"></script>
+<script src="assets/js/view-behavior.js?v=20261125d"></script>
+<script src="assets/js/view-segmentation.js?v=20261125d"></script>
+<script src="assets/js/view-catalog.js?v=20261125d"></script>
+<script src="assets/js/view-consumption.js?v=20261125d"></script>
+<script src="assets/js/view-commercial.js?v=20261125d"></script>
+<script src="assets/js/view-import.js?v=20261125d"></script>
+<script src="assets/js/view-reports.js?v=20261125d"></script>
+<script src="assets/js/view-governance.js?v=20261125d"></script>
+<script src="assets/js/view-settings.js?v=20261125d"></script>
+<script src="assets/js/auth-supabase.js?v=20261125d"></script>
+<script src="assets/js/data-remote.js?v=20261125d"></script>
+<script src="assets/js/app.js?v=20261125d"></script>
 <script>
   if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';

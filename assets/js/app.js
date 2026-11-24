@@ -5,6 +5,13 @@ window.MI = window.MI || {};
   'use strict';
   const el = MI.el, U = MI.ui, st = MI.store;
 
+  /* Como o papel vindo do servidor aparece para quem está na sessão. */
+  const PAPEL_ROTULO = {
+    smoov_admin: 'Administrador Smoov',
+    tenmove_team: 'Equipe 10 Move',
+    tech_admin: 'Administrador técnico'
+  };
+
   const NAV = [
     {
       group: 'Clientes', items: [
@@ -65,6 +72,8 @@ window.MI = window.MI || {};
         clearTimeout(vigia);
         MI.$('#boot').hidden = true;
         MI.$('#app').hidden = false;
+        app.marcarAtividade();
+        app.vigiarInatividade();
         app.mount();
         step(1, '');
         /* As 120 mil transações demonstrativas ficam para depois da primeira
@@ -96,16 +105,8 @@ window.MI = window.MI || {};
         concluido = true;
         clearTimeout(vigia);
         MI.$('#boot').hidden = true;
-        const appEl = MI.$('#app');
-        appEl.hidden = false;
-        appEl.classList.add('is-locked');
         app.bindShell();
-        MI.$('#title').textContent = '';
-        MI.$('#subtitle').textContent = '';
-        document.title = '10 Move Intelligence';
-        const host = MI.clear(MI.$('#view'));
-        MI.auth.renderGate(host);
-        U.flush();
+        app.telaDeAcesso();
         step(1, '');
       };
 
@@ -134,7 +135,20 @@ window.MI = window.MI || {};
       (MI.auth ? MI.auth.init() : Promise.resolve({ enabled: false }))
         .catch(function () { return { enabled: false }; })
         .then(function (a) {
-          if (a && a.enabled && !MI.auth.autenticado()) { mostrarLogin(); return; }
+          if (!a || !a.enabled) { setTimeout(gerarEAbrir, 40); return; }
+          /* Uma aba reaberta no dia seguinte não é uma sessão em uso. O token
+             do Supabase se renova sozinho e duraria indefinidamente, então
+             quem decide é o tempo desde a última interação de verdade. */
+          if (MI.auth.autenticado() && app.repousouDemais()) {
+            step(0.2, 'Sessão expirada por inatividade…');
+            return MI.auth.signOut()
+              .catch(function () { })
+              .then(function () {
+                mostrarLogin();
+                MI.toast('Sua sessão expirou por inatividade. Entre de novo.', 'info');
+              });
+          }
+          if (!MI.auth.autenticado()) { mostrarLogin(); return; }
           setTimeout(gerarEAbrir, 40);
         });
     },
@@ -146,6 +160,9 @@ window.MI = window.MI || {};
        trabalho de quem subiu o arquivo se perdeu. */
     aposLogin: function () {
       const appEl = MI.$('#app');
+      app.encerrando = false;
+      app.marcarAtividade();
+      app.vigiarInatividade();
       appEl.classList.remove('is-locked');
       const host = MI.clear(MI.$('#view'));
       const recado = el('p', { text: 'Procurando a base publicada na plataforma…' });
@@ -168,6 +185,111 @@ window.MI = window.MI || {};
             setTimeout(app.carregarTransacoes, 400);
           });
       }, 50);
+    },
+
+    /* ---------------- Sessão ---------------- */
+
+    /* Minutos sem nenhuma interação até a sessão cair, e quanto antes disso
+       o aviso aparece. Trinta minutos é o que se usa para painel com dado
+       pessoal: longo o bastante para uma reunião, curto o bastante para um
+       computador compartilhado não ficar aberto a tarde inteira. */
+    INATIVIDADE_MIN: 30,
+    AVISO_MIN: 2,
+    encerrando: false,
+
+    repousouDemais: function () {
+      const ultima = MI.storage.get('ultimaAtividade', 0);
+      if (!ultima) return false;
+      return (Date.now() - ultima) > app.INATIVIDADE_MIN * 60000;
+    },
+
+    marcarAtividade: function () {
+      app.ultimaAtividade = Date.now();
+      MI.storage.set('ultimaAtividade', app.ultimaAtividade);
+    },
+
+    /* Um só par de temporizadores, reiniciado a cada interação. Gravar a
+       marca em cada clique seria escrever em disco a cada clique, então o
+       registro é afunilado a uma vez por minuto. */
+    vigiarInatividade: function () {
+      if (!MI.auth || !MI.auth.enabled || app.vigiando) return;
+      app.vigiando = true;
+
+      const reiniciar = function () {
+        clearTimeout(app.tAviso); clearTimeout(app.tCorte);
+        if (!MI.auth.autenticado()) return;
+        app.tAviso = setTimeout(function () {
+          MI.toast('Sua sessão expira em ' + app.AVISO_MIN + ' minutos por inatividade. Mexa em qualquer coisa para continuar.', 'error');
+        }, (app.INATIVIDADE_MIN - app.AVISO_MIN) * 60000);
+        app.tCorte = setTimeout(function () {
+          MI.auth.sair('inatividade de ' + app.INATIVIDADE_MIN + ' minutos');
+        }, app.INATIVIDADE_MIN * 60000);
+      };
+
+      let ultimoRegistro = 0;
+      const aoInteragir = function () {
+        const agora = Date.now();
+        app.ultimaAtividade = agora;
+        if (agora - ultimoRegistro > 60000) {
+          ultimoRegistro = agora;
+          MI.storage.set('ultimaAtividade', agora);
+        }
+        reiniciar();
+      };
+
+      ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (ev) {
+        document.addEventListener(ev, aoInteragir, { passive: true });
+      });
+      /* Voltar para a aba depois de horas com ela em segundo plano conta
+         como reabrir a aplicação, não como continuar usando. */
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState !== 'visible') return;
+        if (!MI.auth.autenticado()) return;
+        if (app.repousouDemais()) MI.auth.sair('inatividade');
+        else aoInteragir();
+      });
+      reiniciar();
+    },
+
+    /* Devolve a aplicação ao estado anterior ao login. A base sai da memória:
+       ela nunca é gravada em disco, mas continuaria na tela para quem
+       assumisse o computador em seguida. */
+    encerrar: function (motivo) {
+      const appEl = MI.$('#app');
+      /* Durante o boot a aplicação ainda está escondida ou travada na tela
+         de acesso; o aviso de "sem sessão" que chega aí não é uma saída. */
+      if (!appEl || appEl.hidden || appEl.classList.contains('is-locked')) return;
+      if (app.encerrando) return;
+      app.encerrando = true;
+      clearTimeout(app.tAviso); clearTimeout(app.tCorte);
+      MI.storage.del('ultimaAtividade');
+      try {
+        MI.tx.clear();
+        st.limpar();
+      } catch (e) { console.error('Falha ao limpar a base ao sair:', e); }
+      app.closePanel();
+      app.current = 'overview';
+      app.telaDeAcesso();
+      MI.toast(motivo === 'saída manual' || !motivo
+        ? 'Sessão encerrada. A base saiu deste navegador.'
+        : 'Sessão encerrada por ' + motivo + '. A base saiu deste navegador.', 'ok');
+    },
+
+    /* Tela de acesso: sem menu, sem barra de filtros e sem o nome da base —
+       nada que revele o tamanho ou o nome da base para quem não entrou. */
+    telaDeAcesso: function () {
+      const appEl = MI.$('#app');
+      appEl.hidden = false;
+      appEl.classList.add('is-locked');
+      MI.$('#title').textContent = '';
+      MI.$('#subtitle').textContent = '';
+      MI.$('#ds-name').textContent = '—';
+      MI.$('#ds-meta').textContent = '';
+      document.title = '10 Move Intelligence';
+      const sessao = MI.$('#sessao');
+      if (sessao) sessao.hidden = true;
+      MI.auth.renderGate(MI.clear(MI.$('#view')));
+      U.flush();
     },
 
     /* Uma única sequência para decidir qual base entra em cena, usada tanto
@@ -306,6 +428,11 @@ window.MI = window.MI || {};
       MI.$('#btn-filters').addEventListener('click', function () { app.openFilters(); });
       const btnTema = MI.$('#btn-tema');
       if (btnTema) btnTema.addEventListener('click', function () { app.alternarTema(); });
+      const btnSair = MI.$('#btn-sair');
+      if (btnSair) btnSair.addEventListener('click', function () {
+        btnSair.disabled = true;
+        MI.auth.sair('saída manual').then(function () { btnSair.disabled = false; });
+      });
       MI.$('#panel-close').addEventListener('click', function () { app.closePanel(); });
       MI.$('#panel-clear').addEventListener('click', function () {
         st.clearFilters();
@@ -387,13 +514,29 @@ window.MI = window.MI || {};
       MI.$$('.persp__btn').forEach(function (b) {
         b.classList.toggle('is-on', b.dataset.persp === st.perspective);
       });
+      const ds = st.dataset;
+
+      /* Quem está na sessão, e a saída. Sem isto a única forma de sair era
+         fechar o navegador — e a sessão continuava válida na volta. */
+      const sessao = MI.$('#sessao');
+      if (sessao) {
+        const dentro = MI.auth && MI.auth.autenticado();
+        sessao.hidden = !dentro;
+        if (dentro) {
+          MI.$('#sessao-email').textContent = MI.auth.user.email || 'sessão ativa';
+          MI.$('#sessao-email').title = MI.auth.user.email || '';
+          MI.$('#sessao-papel').textContent = PAPEL_ROTULO[MI.auth.role] || MI.auth.role || '';
+        }
+      }
+
       MI.$('#persp-note').textContent = st.isTenMove()
         ? MI.privacy.approvedCount() + ' de ' + MI.privacy.INDICATORS.length + ' indicadores liberados pela Smoov.'
         : st.isTech()
           ? 'Sem acesso a registros individuais. Supressão sempre ativa.'
-          : 'Acesso completo à base carregada neste navegador.';
+          : ds && ds.source === 'remote'
+            ? 'Acesso completo à base publicada na plataforma.'
+            : 'Acesso completo à base carregada neste navegador.';
 
-      const ds = st.dataset;
       MI.$('#ds-name').textContent = ds ? ds.name : '—';
       MI.$('#ds-meta').textContent = ds ? MI.fmt.int(ds.rows.length) + ' registros · ' + ds.columns.length + ' colunas' : '';
       const btnTema = MI.$('#btn-tema');
