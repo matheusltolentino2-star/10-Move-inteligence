@@ -113,33 +113,8 @@ window.MI = window.MI || {};
 
       const gerarEAbrir = function () {
         step(0.28, 'Procurando a base publicada na plataforma…');
-        app.carregarBaseAtiva(function (p, t) { step(0.3 + p * 0.4, t); })
-          .catch(function (e) {
-            console.error('Base publicada não carregou:', e);
-            MI.toast('A base publicada não carregou: ' + (e.message || e), 'error');
-            return null;
-          })
-          .then(function (ds) {
-            if (!ds) {
-              step(0.35, 'Gerando base demonstrativa de 80 mil clientes…');
-              try { ds = app.buildDemo(); }
-              catch (e) {
-                console.error(e); clearTimeout(vigia);
-                falhar('Falha ao gerar a base demonstrativa: ' + (e.message || e));
-                return false;
-              }
-            }
-            step(0.75, 'Detectando colunas e tipos de dado…');
-            try { st.setDataset(ds); }
-            catch (e) {
-              console.error(e); clearTimeout(vigia);
-              falhar('Falha ao preparar a base: ' + (e.message || e));
-              return false;
-            }
-            return true;
-          })
-          .then(function (ok) {
-            if (!ok) return;
+        app.prepararBase(function (p, t) { step(0.3 + p * 0.45, t); })
+          .then(function () {
             step(0.88, 'Carregando o catálogo de produtos…');
             return MI.catalog.load()
               .catch(function (e) { console.error('Catálogo não carregou:', e); })
@@ -147,6 +122,10 @@ window.MI = window.MI || {};
                 step(0.95, 'Montando painéis…');
                 setTimeout(mostrarApp, 40);
               });
+          })
+          .catch(function (e) {
+            console.error(e); clearTimeout(vigia);
+            falhar('Falha ao preparar a base: ' + (e.message || e));
           });
       };
 
@@ -160,30 +139,56 @@ window.MI = window.MI || {};
         });
     },
 
-    /* Chamado pela tela de login depois de uma entrada bem-sucedida. */
+    /* Chamado pela tela de login depois de uma entrada bem-sucedida.
+       Entrar agora passa pela mesma sequência de quem recarrega a página:
+       antes, quem acabava de entrar via a base demonstrativa e só encontrava
+       a base publicada depois de um F5 — o que deixa a impressão de que o
+       trabalho de quem subiu o arquivo se perdeu. */
     aposLogin: function () {
       const appEl = MI.$('#app');
       appEl.classList.remove('is-locked');
       const host = MI.clear(MI.$('#view'));
+      const recado = el('p', { text: 'Procurando a base publicada na plataforma…' });
       host.appendChild(el('div', { class: 'empty' }, [
         el('div', { html: MI.icon('refresh', 26) }),
         el('h4', { text: 'Preparando os painéis' }),
-        el('p', { text: 'Carregando a base e o catálogo. Leva alguns segundos.' })
+        recado
       ]));
       setTimeout(function () {
-        try {
-          if (!st.dataset) st.setDataset(app.buildDemo());
-        } catch (e) {
-          console.error(e);
-          MI.toast('Falha ao preparar a base: ' + (e.message || e), 'error');
-        }
-        MI.catalog.load()
-          .catch(function (e) { console.error('Catálogo não carregou:', e); })
+        app.prepararBase(function (p, t) { if (t) recado.textContent = t; })
+          .catch(function (e) {
+            console.error(e);
+            MI.toast('Falha ao preparar a base: ' + (e.message || e), 'error');
+          })
+          .then(function () {
+            return MI.catalog.load().catch(function (e) { console.error('Catálogo não carregou:', e); });
+          })
           .then(function () {
             app.mount();
             setTimeout(app.carregarTransacoes, 400);
           });
       }, 50);
+    },
+
+    /* Uma única sequência para decidir qual base entra em cena, usada tanto
+       no carregamento da página quanto logo depois do login. Duas cópias
+       disso foi exatamente o que fez a base publicada aparecer só no F5. */
+    prepararBase: function (onProgress) {
+      return app.carregarBaseAtiva(onProgress)
+        .catch(function (e) {
+          console.error('Base publicada não carregou:', e);
+          MI.toast('A base publicada não carregou: ' + (e.message || e), 'error');
+          return null;
+        })
+        .then(function (ds) {
+          if (!ds) {
+            if (onProgress) onProgress(0.2, 'Gerando base demonstrativa de 80 mil clientes…');
+            ds = app.buildDemo();
+          }
+          if (onProgress) onProgress(0.9, 'Detectando colunas e tipos de dado…');
+          st.setDataset(ds);
+          return ds;
+        });
     },
 
     /* A base publicada na plataforma tem prioridade sobre a demonstrativa:
