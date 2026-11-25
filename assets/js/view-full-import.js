@@ -34,7 +34,7 @@ window.MI = window.MI || {};
     if(!file || F.busy || F.active)return;
     state.error=''; state.message='Lendo metadados do arquivo…'; state.fraction=0;
     const pending=F.prepare(file,p=>{
-      state.message='Validando '+p.sheet+' · '+MI.fmt.int(p.done)+'/'+MI.fmt.int(p.total)+' linhas';
+      state.message=p.phase || 'Validando '+p.sheet+' · '+MI.fmt.int(p.done)+'/'+MI.fmt.int(p.total)+' linhas';
       state.fraction=p.fraction;
       const label=MI.$('#full-import-progress-label'), bar=MI.$('#full-import-progress');
       if(label)label.textContent=state.message;
@@ -54,6 +54,12 @@ window.MI = window.MI || {};
       state.message=''; MI.app.rerender();
     }
   }
+  F.openFromPicker=function(file) {
+    MI.views.settings.abrirAba('dados','lote');
+    if(MI.app.current!=='settings') MI.app.go('settings');
+    if(F.busy || F.active) MI.app.rerender();
+    else void selected(file);
+  };
   function preview(host) {
     const el=MI.el,U=MI.ui,batch=F.active,request=++state.request;
     const filter=state.store && STORE_TABLES.has(state.table)?{field:'store_id',value:state.store}:null;
