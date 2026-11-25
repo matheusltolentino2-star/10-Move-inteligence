@@ -111,7 +111,8 @@ window.MI = window.MI || {};
     const matrix = dA.map(function () { return new Array(dB.length).fill(0); });
     let total = 0;
     for (let i = 0; i < items.length; i++) {
-      const a = ia[items[i][campoA]], b = ib[items[i][campoB]];
+      const a = ia[items[i][campoA]];
+      const b = ib[opts.valorB ? opts.valorB(items[i]) : items[i][campoB]];
       if (a == null || b == null) continue;
       const v = metrica === 'valor' ? (items[i]._valor || 0) : metrica === 'itens' ? 1 : (items[i]._qtd || 1);
       matrix[a][b] += v; total += v;

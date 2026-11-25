@@ -197,9 +197,9 @@ MI.views = MI.views || {};
           if (comFaixa.length < 50) {
             return U.card({ span: 'c12', title: 'Categoria por faixa horária', body: U.unavailable('Itens insuficientes com hora e categoria', ['Hora do pedido', 'Categoria']) });
           }
-          comFaixa.forEach(function (i) { i.__fh = X.faixaHora(i._hora); });
-          const ct = X.cruzamento(comFaixa, '_cat', '__fh', {
-            metrica: 'qtd', limitA: 10, ordemB: X.FAIXAS_HORA.map(function (f) { return f.label; })
+          const ct = X.cruzamento(comFaixa, '_cat', '_hora', {
+            metrica: 'qtd', limitA: 10, ordemB: X.FAIXAS_HORA.map(function (f) { return f.label; }),
+            valorB: function (i) { return X.faixaHora(i._hora); }
           });
           const pal = MI.charts.palette(ct.colLabels.length);
           const cv = el('canvas');

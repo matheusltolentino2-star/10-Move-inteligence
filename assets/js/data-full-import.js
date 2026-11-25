@@ -79,6 +79,48 @@ window.MI = window.MI || {};
     return map.size === Object.keys(expected).length && Object.entries(expected).every(([k,v]) => map.get(k) === v);
   }
 
+  /* As linhas da análise compartilham colunas de pedido e vínculos de catálogo.
+     O formato mantém a interface usada pelo motor de transações, com um
+     único índice por item e sem copiar os atributos de cliente em cada linha. */
+  function compactItems(order, product, quantity, unitPrice, amount, facts) {
+    const {clients, stores, days, hours, channels, ids, dates, customerIds, shopList, productList}=facts;
+    const linkedProducts=productList.map(()=>Object.create(null));
+    const linkedCustomers=customerIds.map(()=>Object.create(null));
+    const productAt=i=>productList[product[i]];
+    const customerAt=i=>clients[order[i]];
+    const dateAt=i=>dates[days[order[i]]];
+
+    class Item {
+      constructor(index) { this.index=index; }
+      get _pedido() { return ids[order[this.index]]; }
+      get _cliente() { return customerIds[customerAt(this.index)]; }
+      get _sku() { return productAt(this.index).sku; }
+      get _nome() { return productAt(this.index).produto; }
+      get _tamanho() { return productAt(this.index).tamanho; }
+      get _catBruta() { return productAt(this.index).categoria; }
+      get _data() { return dateAt(this.index).date; }
+      get _mes() { return dateAt(this.index).month; }
+      get _dow() { return dateAt(this.index).dow; }
+      get _hora() { return hours[order[this.index]]; }
+      get _qtd() { return quantity[this.index]; }
+      get _valorUnit() { return unitPrice[this.index]/100; }
+      get _valor() { return amount[this.index]/100; }
+      get _canal() { return CHANNELS[channels[order[this.index]]]; }
+      get _unidade() { return shopList[stores[order[this.index]]].name; }
+    }
+    function linkedProperties(keys, linkAt) {
+      for(const key of keys) Object.defineProperty(Item.prototype,key,{
+        get(){return linkAt(this.index)[key] ?? null;},
+        set(value){linkAt(this.index)[key]=value;}
+      });
+    }
+    linkedProperties(['_prod','_cat','_subcat','_metodo'], i=>linkedProducts[product[i]]);
+    linkedProperties(['_faixa','_genero','_uf','_cidade','_idade'], i=>linkedCustomers[customerAt(i)]);
+    const items=new Array(order.length);
+    for(let i=0;i<items.length;i++)items[i]=new Item(i);
+    return items;
+  }
+
   async function manifest(book) {
     assert(book.names.includes('metadados'), 'Selecione a planilha SMOOV_INTELLIGENCE_FULL_DATASET.xlsx.');
     const info = new Map(), manifest = new Map(), declared = new Set(['metadados']);
@@ -157,7 +199,12 @@ window.MI = window.MI || {};
         const list = [];
         await scan(name, (_, keys) => (raw,n) => {
           const row = {};
-          for (let i=0; i<keys.length; i++) row[keys[i]] = raw[i] ?? '';
+          for (let i=0; i<keys.length; i++) {
+            const value=raw[i] ?? '';
+            // Os textos de cadastro vivem além do bloco XML que os contém.
+            // Desata o vínculo entre a substring e o bloco descompactado.
+            row[keys[i]]=name==='clientes' && typeof value==='string' && value.length>12 ? (' '+value).slice(1) : value;
+          }
           if (consumer) consumer(row,n);
           else list.push(row);
         });
@@ -272,7 +319,8 @@ window.MI = window.MI || {};
     const stockSeen=new Uint8Array(stockSize);
     const compactStore=(c,s)=>c*m.stores.size+s, recurrence=intColumns(2,m.cust.length*m.stores.size);
     const stockKey=(d,s,p)=>(Math.floor(d/7)*m.stores.size+s)*m.products.size+p;
-    const items=new Array(lines);
+    const [lineOrder,lineQuantity,lineUnitPrice,lineNet]=intColumns(4,lines);
+    const lineProduct=new Uint8Array(lines);
     const campaignCount=Array.from({length:m.camps.size},()=>[0,0]);
     const totals={orders:size-1,items:lines,units:0,netCents:0,cogsCents:0,grossCents:0,discountCents:0,
       withoutDelivery:0, longDistanceOrders:0};
@@ -331,7 +379,7 @@ window.MI = window.MI || {};
           campaignCount[campaign.index][0]++;
           campaignCount[campaign.index][1]+=disc;
         } else assert(disc===0,'Desconto sem campanha.');
-        client[n]=c; store[n]=s.index; day[n]=d; hour[n]=hr; channel[n]=ch; ids[n]=row[h.transaction_id];
+        client[n]=c; store[n]=s.index; day[n]=d; hour[n]=hr; channel[n]=ch; ids[n]='T'+String(n).padStart(7,'0');
         gross[n]=a; discount[n]=disc; net[n]=v; units[n]=q; cogs[n]=cost;
         cnt[c]++; customerNet[c]+=v; first[c]=Math.min(first[c],d); last[c]=Math.max(last[c],d);
         const compact=d*m.stores.size+s.index;
@@ -376,9 +424,11 @@ window.MI = window.MI || {};
         }
         seenGross[o]+=unit*q; seenDiscount[o]+=disc; seenNet[o]+=v; seenUnits[o]+=q; seenCogs[o]+=cost*q;
         actualUnits[sk]+=q;
-        const date=period.dates[d];
-        items[n-1]=MI.tx.criarItem(ids[o],m.cust[client[o]].cliente_id,p.sku,p.produto,p.tamanho,p.categoria,
-          date.date,date.month,date.dow,hour[o],q,unit/100,v/100,CHANNELS[channel[o]],shopList[s].name);
+        lineOrder[n-1]=o;
+        lineProduct[n-1]=p.index;
+        lineQuantity[n-1]=q;
+        lineUnitPrice[n-1]=unit;
+        lineNet[n-1]=v;
       });
       for(let k=1;k<size;k++) assert(gross[k]===seenGross[k] && discount[k]===seenDiscount[k] &&
         net[k]===seenNet[k] && units[k]===seenUnits[k] && cogs[k]===seenCogs[k] && addon[k]===soldAddon[k],
@@ -469,6 +519,12 @@ window.MI = window.MI || {};
       docs.dicionario=await r.objects('dicionario');
     }
 
+    function items() {
+      return compactItems(lineOrder,lineProduct,lineQuantity,lineUnitPrice,lineNet,{
+        clients:client,stores:store,days:day,hours:hour,channels:channel,ids,dates:period.dates,
+        customerIds:m.cust.map(c=>c?.cliente_id || null),shopList,productList
+      });
+    }
     return {stock,orders,lineItems,operations,companion,items,totals,docs};
   }
 
@@ -513,7 +569,7 @@ window.MI = window.MI || {};
         lat:s.latitude,lng:s.longitude,raio_m:s.raio_m,precisao:'exata',origem:SOURCE,formato_comercial:s.commercial_format,
         inaugurada_em:s.opening_date,is_synthetic:true
       }));
-      return {id:meta.info.get('lote'),file,book,meta,customers,catalog,items:p.items,units,docs:p.docs,
+      return {id:meta.info.get('lote'),file,book,meta,customers,catalog,items:p.items(),units,docs:p.docs,
         geo:Array.from(m.geo.values()),micros:Array.from(m.micros.values()),
         counts:{metadados:book.names.length-1+6,...r.counts},stats:{...p.totals,
           customers:customers.rows.length,products:catalog.length,stores:units.length,cities:m.cities.size,
