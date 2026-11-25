@@ -138,27 +138,38 @@ window.MI = window.MI || {};
     return value;
   }
 
+  function nextCell(row, offset) {
+    let start = row.indexOf('<c', offset);
+    while (start !== -1 && !' > /\t\r\n'.includes(row[start + 2])) {
+      start = row.indexOf('<c', start + 2);
+    }
+    return start;
+  }
+
   function cells(row, strings) {
     const out = [];
     requireValid(row.indexOf('<f') === -1, 'O lote deve conter valores, sem fórmulas nas tabelas.');
-    let start = row.indexOf('<c ');
+    let start = nextCell(row, 0), previous = 0;
     while (start !== -1) {
       const close = row.indexOf('>', start);
-      const addr = row.indexOf(' r="', start);
-      requireValid(addr !== -1 && addr < close, 'Célula sem endereço.');
-      let pos = 0;
-      let letter = addr + 4;
-      for (; letter < close; letter++) {
-        const code = row.charCodeAt(letter);
-        if (code < 65 || code > 90) break;
-        pos = pos * 26 + code - 64;
+      const tag = row.slice(start, close);
+      const addr = tag.indexOf(' r="');
+      let pos = previous + 1;
+      if (addr !== -1) {
+        pos = 0;
+        for (let letter = addr + 4; letter < tag.length; letter++) {
+          const code = tag.charCodeAt(letter);
+          if (code < 65 || code > 90) break;
+          pos = pos * 26 + code - 64;
+        }
       }
-      requireValid(pos > 0 && pos <= 128 && !(pos - 1 in out), 'Coluna inválida ou duplicada no Excel.');
+      requireValid(pos > previous && pos <= 128, 'Coluna inválida, fora de ordem ou duplicada no Excel.');
+      previous = pos;
       const empty = row[close - 1] === '/';
       const end = empty ? close : row.indexOf('</c>', close);
       requireValid(end >= close, 'Célula Excel incompleta.');
-      const typeAt = row.indexOf(' t="',start);
-      const type = typeAt !== -1 && typeAt < close ? row.slice(typeAt + 4, row.indexOf('"',typeAt + 4)) : '';
+      const typeAt = tag.indexOf(' t="');
+      const type = typeAt !== -1 ? tag.slice(typeAt + 4, tag.indexOf('"',typeAt + 4)) : '';
       let value;
       if (empty) value = '';
       else if (type==='inlineStr') {
@@ -185,7 +196,7 @@ window.MI = window.MI || {};
         }
       }
       out[pos - 1]=value;
-      start=row.indexOf('<c ',end+1);
+      start=nextCell(row,end+1);
     }
     return out;
   }
@@ -223,7 +234,8 @@ window.MI = window.MI || {};
           requireValid(source, 'Aba ausente: ' + name);
           let expected = 1;
           for await (const row of elements(workbook.content(source), 'row')) {
-            requireValid(Number(/^<row\b[^>]*\br="(\d+)"/.exec(row)?.[1]) === expected,
+            const address = /^<row\b[^>]*\br="(\d+)"/.exec(row)?.[1];
+            requireValid(address === undefined || Number(address) === expected,
               'Linhas faltantes ou fora de ordem em ' + name + ': ' + expected);
             expected++;
             yield cells(row, shared);
