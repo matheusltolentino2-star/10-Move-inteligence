@@ -14,25 +14,28 @@ window.MI = window.MI || {};
 
   V.reset = function () { S.plano = null; S.relatorio = null; S.busy = false; };
 
-  function ler(file) {
+  async function ler(file) {
     S.busy = true; S.prog = 0.05; S.msg = 'Abrindo ' + file.name + '…';
     MI.app.rerender();
-    MI.importUnico.analisar(file, function (p, m) {
-      S.prog = p; S.msg = m;
-      const b = MI.$('#uni-bar'), l = MI.$('#uni-msg');
-      if (b) b.style.width = Math.round(p * 100) + '%';
-      if (l) l.textContent = m;
-    })
-      .then(function (plano) {
-        S.busy = false; S.plano = plano; S.relatorio = null;
-        MI.toast(plano.abas.length + (plano.abas.length === 1 ? ' aba lida.' : ' abas lidas.'), 'ok');
-        MI.app.rerender();
-      })
-      .catch(function (e) {
+    try {
+      if (await MI.fullWorkbook.isFullBatch(file)) {
         S.busy = false;
-        MI.toast(e.message || 'Falha ao ler o arquivo.', 'error');
-        MI.app.rerender();
+        MI.fullData.openFromPicker(file);
+        return;
+      }
+      const plano = await MI.importUnico.analisar(file, function (p, m) {
+        S.prog = p; S.msg = m;
+        const b = MI.$('#uni-bar'), l = MI.$('#uni-msg');
+        if (b) b.style.width = Math.round(p * 100) + '%';
+        if (l) l.textContent = m;
       });
+      S.busy = false; S.plano = plano; S.relatorio = null;
+      MI.toast(plano.abas.length + (plano.abas.length === 1 ? ' aba lida.' : ' abas lidas.'), 'ok');
+    } catch (e) {
+      S.busy = false;
+      MI.toast(e.message || 'Falha ao ler o arquivo.', 'error');
+    }
+    MI.app.rerender();
   }
 
   function aplicar() {

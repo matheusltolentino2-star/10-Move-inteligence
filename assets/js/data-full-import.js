@@ -92,6 +92,7 @@ window.MI = window.MI || {};
 
     class Item {
       constructor(index) { this.index=index; }
+      get _pedidoIndice() { return order[this.index]; }
       get _pedido() { return ids[order[this.index]]; }
       get _cliente() { return customerIds[customerAt(this.index)]; }
       get _sku() { return productAt(this.index).sku; }
@@ -162,7 +163,7 @@ window.MI = window.MI || {};
       let all = 0;
       for (const {sheet,rows,width} of metadata.manifest.get(name)) {
         let rowNumber = 0, handle, keys;
-        for await (const raw of book.rows(sheet)) {
+        for await (const batch of book.rowBatches(sheet)) for (const raw of batch) {
           rowNumber++;
           try {
             if (rowNumber === 1) {
@@ -550,6 +551,8 @@ window.MI = window.MI || {};
       await p.companion();
       assert(Object.keys(r.counts).length===book.names.length-1,'A leitura não verificou todas as abas.');
       if(full) assert(p.totals.units>=1200000 && p.totals.units<=1800000,'Unidades comercializadas fora do contrato.');
+      onProgress?.({fraction:1, phase:'Preparando clientes e catálogo…'});
+      await new Promise(resolve=>setTimeout(resolve,0));
       const customers=MI.importer.buildDataset({headers:r.headers.clientes,rows:m.cust.slice(1),headerRow:1},
         {name:'SMOOV Nacional · lote simulado',fileName:file.name,sheetName:'clientes'});
       customers.source=SOURCE;

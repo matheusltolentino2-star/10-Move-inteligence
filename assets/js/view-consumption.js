@@ -21,6 +21,7 @@ MI.views = MI.views || {};
       if (!T.has()) return semTransacoes(root);
 
       const lote = MI.fullData?.active;
+      const totalPedidosDoLote = lote?.items === T.items ? lote.stats.orders : null;
       const loteId = lote?.id || null;
       if (S.lote !== loteId) { S.lote = loteId; S.loja = ''; S.periodo = 'mes'; }
       const filtered = T.filtered();
@@ -70,7 +71,7 @@ MI.views = MI.views || {};
       root.appendChild(diagnostico(l));
 
       /* ---------- KPIs ---------- */
-      const ped = X.porPedido(items);
+      const ped = totalPedidosDoLote ? X.resumoPedidosDoLote(items, totalPedidosDoLote) : X.porPedido(items);
       const totalQtd = MI.sum(items, function (i) { return i._qtd || 1; });
       const totalValor = MI.sum(items, function (i) { return i._valor || 0; });
       const clientesNoRecorte = items === todos ? l.clientesDistintos : new Set(items.map(i=>i._cliente).filter(Boolean)).size;
@@ -381,7 +382,7 @@ MI.views = MI.views || {};
       if (l.pedidos > 10) {
         root.appendChild(U.section('Produtos comprados juntos', 'Co-ocorrência no mesmo pedido'));
         root.appendChild(el('div', { class: 'grid' }, U.guarded('cons.cesta', function () {
-          const pares = X.cesta(items, { nivel: 'produto', topN: 28, minPedidos: Math.max(20, MI.privacy.k) });
+          const pares = X.cesta(items, { nivel: 'produto', topN: 28, minPedidos: Math.max(20, MI.privacy.k), totalPedidosDoLote });
           if (!pares || !pares.length) {
             return U.card({
               span: 'c12', title: 'Combinações de produtos',
@@ -420,7 +421,7 @@ MI.views = MI.views || {};
       }
 
       /* ---------- recorrência ---------- */
-      const rec = X.recorrencia(items);
+      const rec = X.recorrencia(items, totalPedidosDoLote);
       if (rec) {
         root.appendChild(U.section('Frequência e recorrência de compra', 'Comportamento de repetição dos clientes'));
         root.appendChild(el('div', { class: 'grid' }, U.guarded('cons.recorrencia', function () {
@@ -453,7 +454,7 @@ MI.views = MI.views || {};
 
       /* ---------- leituras ---------- */
       root.appendChild(U.section('Leituras de consumo', 'Consumo observado, característica demográfica, hipótese e recomendação — sempre separados'));
-      root.appendChild(el('div', { class: 'grid' }, leituras(items, l, ped, rec)));
+      root.appendChild(el('div', { class: 'grid' }, leituras(items, l, ped, rec, totalPedidosDoLote)));
 
       /* A base que alimenta esta tela se gerencia aqui, não numa tela
          distante: quem percebe que importou a planilha errada está olhando
@@ -511,7 +512,7 @@ MI.views = MI.views || {};
     }));
   }
 
-  function leituras(items, l, ped, rec) {
+  function leituras(items, l, ped, rec, totalPedidosDoLote) {
     const fatos = [], demog = [], hip = [], acoes = [];
     const X2 = X;
 
@@ -603,7 +604,9 @@ MI.views = MI.views || {};
       }
     }
 
-    const pares = l.pedidos > 10 ? X2.cesta(items, { nivel: 'produto', topN: 24, minPedidos: Math.max(20, MI.privacy.k) }) : null;
+    const pares = l.pedidos > 10 ? X2.cesta(items, {
+      nivel: 'produto', topN: 24, minPedidos: Math.max(20, MI.privacy.k), totalPedidosDoLote
+    }) : null;
     if (pares && pares.length) {
       const p = pares[0];
       fatos.push({
