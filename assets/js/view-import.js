@@ -39,24 +39,28 @@ window.MI = window.MI || {};
   }
 
   /* ================= Carregamento ================= */
-  function carregar(modo, file) {
+  async function carregar(modo, file) {
     const s = ST[modo];
     s.busy = true; s.prog = 0.05; s.msg = 'Abrindo ' + file.name + '…';
     MI.app.rerender();
 
-    MI.importer.readFile(file, function (p, m) { s.prog = p; s.msg = m; progresso(modo); })
-      .then(function (res) {
-        s.pendente = res;
-        s.pontuacao = MI.importer.pontuarAbas(res, MODOS[modo].dica);
-        s.aba = s.pontuacao.recomendada;
-        s.headerRow = null; s.semCabecalho = false;
-        return extrair(modo);
-      })
-      .catch(function (err) {
+    try {
+      if (await MI.fullWorkbook.isFullBatch(file)) {
         s.busy = false;
-        MI.toast(err.message || 'Falha ao importar o arquivo.', 'error');
-        MI.app.rerender();
-      });
+        MI.fullData.openFromPicker(file);
+        return;
+      }
+      const res = await MI.importer.readFile(file, function (p, m) { s.prog = p; s.msg = m; progresso(modo); });
+      s.pendente = res;
+      s.pontuacao = MI.importer.pontuarAbas(res, MODOS[modo].dica);
+      s.aba = s.pontuacao.recomendada;
+      s.headerRow = null; s.semCabecalho = false;
+      await extrair(modo);
+    } catch (err) {
+      s.busy = false;
+      MI.toast(err.message || 'Falha ao importar o arquivo.', 'error');
+      MI.app.rerender();
+    }
   }
 
   function extrair(modo) {
