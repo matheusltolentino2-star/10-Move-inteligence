@@ -73,7 +73,7 @@ window.MI = window.MI || {};
   };
 
   /* Preferências de leitura, fora do ciclo de render. */
-  const PREF = { metrica: 'clientes', unidades: true, cobertura: false, coropletico: true };
+  const PREF = { metrica: 'clientes', unidades: true, cobertura: false, sobreposicao: false, coropletico: true };
 
   const M = {
     pronto: false, mapa: null, raiz: null, ctx: null,
@@ -501,6 +501,40 @@ window.MI = window.MI || {};
       });
       marca.addTo(M.unidades);
     });
+
+    /* Sobreposição desenhada por cima dos raios: é onde duas lojas disputam
+       o mesmo pedaço de cidade, e é o que a leitura de canibalização
+       procura. Sem coordenada em pelo menos duas unidades, não há o que
+       desenhar — e a camada fica desabilitada dizendo por quê. */
+    if (PREF.sobreposicao && MI.cobertura) {
+      const an = MI.cobertura.analisar({
+        filtro: function (u) {
+          if (ctx.nivel === 'uf' && u.uf !== ctx.uf) return false;
+          if (ctx.nivel === 'municipio') {
+            if (u.uf !== ctx.uf) return false;
+            if (MI.slug(u.municipio || '') !== MI.slug(ctx.municipio || '')) return false;
+          }
+          return true;
+        }
+      });
+      ctx.analiseCobertura = an;
+      an.pares.forEach(function (par) {
+        if (!par.contorno) return;
+        L.polygon(par.contorno, {
+          pane: 'cobertura',
+          color: css('--crit'), weight: 1.2, opacity: 0.75,
+          fillColor: css('--crit'), fillOpacity: 0.22
+        }).bindTooltip(
+          '<strong>Sobreposição</strong>' +
+          '<span>' + esc(par.a.nome) + ' × ' + esc(par.b.nome) + '</span>' +
+          '<span>' + MI.fmt.dec(par.distancia / 1000, 1) + ' km entre elas</span>' +
+          '<span>' + MI.fmt.dec(par.area / 1e6, 1) + ' km² em comum</span>',
+          { direction: 'top', opacity: 1, className: 'geo-dica' }
+        ).addTo(M.cobertura);
+      });
+    } else {
+      ctx.analiseCobertura = null;
+    }
     return lista.length;
   }
 
@@ -539,6 +573,9 @@ window.MI = window.MI || {};
       bal.total ? MI.fmt.int(bal.total) + ' unidades cadastradas' : 'Nenhuma unidade cadastrada ainda'));
     M.camadasEl.appendChild(alternador('Cobertura', 'cobertura', bal.exatas > 0,
       bal.exatas ? 'Raio operacional das unidades com coordenada' : 'Nenhuma unidade tem coordenada: o raio sairia em volta do centro do município'));
+    M.camadasEl.appendChild(alternador('Sobreposição', 'sobreposicao', bal.exatas > 1,
+      bal.exatas > 1 ? 'Onde dois raios se cruzam — leitura de canibalização'
+        : 'Precisa de pelo menos duas unidades com coordenada'));
   }
 
   function montarLegenda(ctx) {

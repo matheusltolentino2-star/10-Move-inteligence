@@ -416,6 +416,8 @@ MI.views = MI.views || {};
       return;
     }
 
+    painelCobertura(host, ctx, uf, rows);
+
     host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Ranking por ' + ctx.metrica.rotulo.toLowerCase() }));
     host.appendChild(el('div', { class: 'geo__lista' }, comDado.slice(0, 30).map(function (f, i) {
       const prop = ctx.max ? f._v / ctx.max : 0;
@@ -446,6 +448,74 @@ MI.views = MI.views || {};
           return el('div', { class: 'geo__item is-inerte' }, [
             el('span', { class: 'geo__item-nome', text: e.label }),
             el('span', { class: 'geo__item-v', text: MI.fmt.int(e.value) })
+          ]);
+        })));
+      }
+    }
+  }
+
+  /* Cobertura: números em vez de desenho bonito. Três quilômetros em volta
+     do centróide de um município não medem nada, então a seção diz o que
+     falta em vez de mostrar um resultado falso. */
+  function painelCobertura(host, ctx, uf, rows) {
+    if (!MI.cobertura || !MI.unidades || !MI.unidades.items.length) return;
+    const an = MI.cobertura.analisar({
+      filtro: function (u) { return ctx.nivel === 'brasil' || u.uf === uf; }
+    });
+
+    host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Cobertura operacional' }));
+
+    if (!an.comCoordenada) {
+      host.appendChild(el('p', { class: 'geo__painel-txt' }, [
+        el('strong', { text: 'Nenhuma unidade tem coordenada. ' }),
+        MI.fmt.int(an.semCoordenada) + (an.semCoordenada === 1 ? ' unidade está posicionada' : ' unidades estão posicionadas') +
+        ' pelo município, e raio de 3 km em volta de um centróide não mede nada. ' +
+        'Preencha latitude e longitude em Configurações › Fontes de dados › Unidades e esta seção acende sozinha.'
+      ]));
+      return;
+    }
+
+    host.appendChild(U.statline([
+      { k: 'Com coordenada', v: MI.fmt.int(an.comCoordenada) },
+      { k: 'Área coberta', v: MI.fmt.dec(an.areaTotal / 1e6, 1) + ' km²' },
+      an.pares.length ? { k: 'Em sobreposição', v: MI.fmt.dec(an.areaSobreposta / 1e6, 1) + ' km²' } : null,
+      an.semCoordenada ? { k: 'Sem posição exata', v: MI.fmt.int(an.semCoordenada) } : null
+    ].filter(Boolean)));
+
+    /* o número que não pode ser somado errado */
+    if (an.pares.length) {
+      host.appendChild(el('p', { class: 'geo__painel-txt' },
+        'A área coberta já desconta a sobreposição: a soma simples dos raios daria ' +
+        MI.fmt.dec(an.areaBruta / 1e6, 1) + ' km², que contaria o mesmo território duas vezes.'));
+      host.appendChild(el('div', { class: 'geo__lista' }, an.pares.slice(0, 6).map(function (par) {
+        return el('div', { class: 'geo__item is-inerte' }, [
+          el('span', { class: 'geo__item-nome', text: par.a.nome + ' × ' + par.b.nome }),
+          el('span', {
+            class: 'geo__item-v',
+            text: MI.fmt.dec(par.area / 1e6, 1) + ' km² · ' + MI.fmt.pct(Math.max(par.fracaoA, par.fracaoB), 0)
+          })
+        ]);
+      })));
+    } else {
+      host.appendChild(el('p', { class: 'geo__painel-txt', text: 'Nenhum par de unidades se sobrepõe neste recorte.' }));
+    }
+
+    /* demanda fora de alcance, só no nível estadual onde a conta faz sentido */
+    if (ctx.nivel === 'uf') {
+      const dd = MI.cobertura.demandaDescoberta(rows, uf);
+      if (dd && dd.fora.length) {
+        host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Demanda fora do alcance' }));
+        host.appendChild(el('p', { class: 'geo__painel-txt' }, [
+          MI.fmt.int(dd.clientesFora) + ' clientes em ' + MI.fmt.int(dd.fora.length) +
+          ' municípios cujo centro está fora de qualquer raio. ',
+          el('strong', { text: 'Isto não é uma lista de oportunidades: ' }),
+          'pode ser região onde já se tentou. E a medida é do centro do município, ' +
+          'o que em cidade grande diz pouco.'
+        ]));
+        host.appendChild(el('div', { class: 'geo__lista' }, dd.fora.slice(0, 8).map(function (e) {
+          return el('div', { class: 'geo__item is-inerte' }, [
+            el('span', { class: 'geo__item-nome', text: e.cidade }),
+            el('span', { class: 'geo__item-v', text: MI.fmt.int(e.clientes) + ' · ' + MI.fmt.dec(e.distancia / 1000, 0) + ' km' })
           ]);
         })));
       }
