@@ -293,6 +293,10 @@ window.MI = window.MI || {};
       if (ds.available._uf) out.push({ id: '_uf', label: 'Estado (UF)', kind: 'cat', options: catOptions(all, '_uf', 30) });
       if (ds.available._regiao) out.push({ id: '_regiao', label: 'Região', kind: 'cat', options: catOptions(all, '_regiao', 6) });
       if (ds.available._cidade) out.push({ id: '_cidade', label: 'Cidade', kind: 'cat', options: catOptions(all, '_cidade', 200), searchable: true });
+      /* Bairro era derivado, aparecia na Inteligência Geográfica e ficava de
+         fora da lista de filtros — dava para ver a distribuição por bairro e
+         não dava para recortar por ela. */
+      if (ds.available._bairro) out.push({ id: '_bairro', label: 'Bairro / região', kind: 'cat', options: catOptions(all, '_bairro', 300), searchable: true });
       if (ds.available._plano) out.push({ id: '_plano', label: 'Plano / produto', kind: 'cat', options: catOptions(all, '_plano', 40) });
       if (ds.available._canal) out.push({ id: '_canal', label: 'Canal de aquisição', kind: 'cat', options: catOptions(all, '_canal', 40) });
       if (ds.available._status) out.push({ id: '_status', label: 'Status', kind: 'cat', options: catOptions(all, '_status', 20) });
