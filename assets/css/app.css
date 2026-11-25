@@ -529,6 +529,26 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 }
 .geo__rot.is-sel { font-size: 13px; }
 .geo__rot--fora { font-size: 11.5px; fill: var(--text); }
+.geo__camadas { display: flex; gap: 4px; }
+.geo__camada-btn {
+  cursor: pointer; border: 1px solid var(--border); background: var(--surface);
+  border-radius: 8px; padding: 6px 10px; font-size: 11.5px; font-weight: 600;
+  font-family: var(--font-display); color: var(--muted);
+}
+.geo__camada-btn:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
+.geo__camada-btn.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.geo__camada-btn:disabled { opacity: .45; cursor: default; }
+/* própria e franquia são categorias, não intensidades: formas e cores
+   distintas, nunca dois tons da mesma escala do coroplético */
+.geo__unidade { stroke: var(--surface); stroke-width: 1.6; fill: var(--c5); }
+.geo__unidade--propria { fill: var(--c5); }
+.geo__unidade--franquia { fill: var(--c6); }
+.geo__unidade--nao_informado { fill: var(--muted); }
+.geo__unidade.is-aprox { fill: none; stroke: var(--c5); stroke-width: 2.4; }
+.geo__unidade--franquia.is-aprox { stroke: var(--c6); }
+.geo__unidade--nao_informado.is-aprox { stroke: var(--muted); }
+.geo__raio { fill: var(--c5); fill-opacity: .13; stroke: var(--c5); stroke-opacity: .5; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.geo__raio--franquia { fill: var(--c6); stroke: var(--c6); }
 .geo__chamada { stroke: var(--muted); stroke-width: 1; fill: none; opacity: .65; }
 .geo__ponto { fill: var(--text); }
 

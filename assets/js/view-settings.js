@@ -94,7 +94,8 @@ MI.views = MI.views || {};
     const sub = [
       { id: 'clientes', label: 'Base de clientes', icon: 'users' },
       { id: 'transacoes', label: 'Base de transações', icon: 'spark' },
-      { id: 'catalogo', label: 'Catálogo de produtos', icon: 'grid' }
+      { id: 'catalogo', label: 'Catálogo de produtos', icon: 'grid' },
+      { id: 'unidades', label: 'Unidades', icon: 'map' }
     ];
     root.appendChild(el('div', { style: 'display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px' }, sub.map(function (t) {
       return el('button', {
@@ -102,6 +103,8 @@ MI.views = MI.views || {};
         onclick: function () { S.fonte = t.id; MI.app.rerender(); }
       }, [el('span', { html: MI.icon(t.icon, 14) }), t.label]);
     })));
+
+    if (S.fonte === 'unidades') { renderUnidades(root); return; }
 
     if (S.fonte === 'catalogo') {
       root.appendChild(el('div', { class: 'grid' }, U.card({
@@ -117,6 +120,189 @@ MI.views = MI.views || {};
       return;
     }
     MI.importUI.render(root, S.fonte);
+  }
+
+  /* ================= Unidades =================
+     O cadastro existe para receber o que o dado não traz: endereço,
+     coordenada, formato e maturidade. O nome e o município já vêm das
+     transações, então a tela abre com as unidades preenchidas e pede só o
+     que falta. */
+  function renderUnidades(root) {
+    const Un = MI.unidades;
+    if (!Un || !Un.disponivel()) {
+      root.appendChild(el('div', { class: 'grid' }, U.card({
+        span: 'c12', title: 'Unidades',
+        body: U.unavailable('O cadastro de unidades fica no servidor e exige sessão ativa',
+          ['Entrar na plataforma', 'Pertencer a uma organização'])
+      })));
+      return;
+    }
+
+    const bal = Un.balanco();
+    const cob = Un.cobertura();
+    const pode = Un.podeEditar();
+
+    root.appendChild(el('div', { style: 'margin-bottom:14px' }, U.note(bal.exatas ? null : 'warn', [
+      el('strong', { text: 'A posição de cada unidade vale o que a precisão dela diz. ' }),
+      'Unidade “aproximada pelo município” é desenhada no centro do município, não na porta da loja — ' +
+      'serve para ver presença, não para medir cobertura. O raio de 3 km só aparece no mapa para quem tem ' +
+      'coordenada informada' + (bal.exatas ? '.' : ', e nenhuma tem ainda.')
+    ])));
+
+    root.appendChild(U.section('Situação do cadastro', bal.total
+      ? MI.fmt.int(bal.total) + ' unidades'
+      : 'Nenhuma unidade ainda'));
+    root.appendChild(el('div', { class: 'grid' }, U.card({
+      span: 'c12',
+      body: [
+        U.statline([
+          { k: 'Unidades', v: MI.fmt.int(bal.total) },
+          { k: 'Com coordenada', v: MI.fmt.int(bal.exatas) },
+          { k: 'Pelo município', v: MI.fmt.int(bal.porMunicipio) },
+          { k: 'Sem posição', v: MI.fmt.int(bal.sem) },
+          { k: 'Próprias', v: MI.fmt.int(bal.proprias) },
+          { k: 'Franquias', v: MI.fmt.int(bal.franquias) }
+        ]),
+        cob ? el('div', { style: 'margin-top:14px' }, U.note(null, [
+          el('strong', { text: MI.fmt.pct(cob.taxaUnidade, 1) + ' dos itens vendidos informam a unidade. ' }),
+          cob.desconhecidas.length
+            ? MI.fmt.int(cob.desconhecidas.length) + ' nomes de unidade ainda não estão no cadastro.'
+            : 'Todas as unidades citadas nas vendas estão cadastradas.'
+        ])) : null,
+        pode ? el('div', { style: 'margin-top:14px;display:flex;gap:8px;flex-wrap:wrap' }, [
+          U.btn('Cadastrar unidade', { sm: true, variant: 'accent', icon: 'check', onClick: function () { editorUnidade(null); } }),
+          MI.tx.has() && !MI.tx.isDemo() ? U.btn('Buscar nas transações', {
+            sm: true, icon: 'refresh',
+            title: 'Cria as unidades citadas nas vendas que ainda não existem',
+            onClick: function () {
+              Un.semear().then(function (r) {
+                MI.toast(r.criadas ? MI.fmt.int(r.criadas) + ' unidades cadastradas.' : 'Nenhuma unidade nova encontrada.', 'ok');
+                MI.app.rerender();
+              });
+            }
+          }) : null
+        ].filter(Boolean)) : null
+      ].filter(Boolean)
+    })));
+
+    if (!bal.total) {
+      root.appendChild(el('div', { class: 'grid' }, U.card({
+        span: 'c12',
+        body: U.empty('Nenhuma unidade cadastrada',
+          MI.tx.has() && !MI.tx.isDemo()
+            ? 'Use “Buscar nas transações” para criar a partir dos nomes que já aparecem nas vendas.'
+            : 'Importe uma base de transações com a coluna de unidade, ou cadastre à mão.')
+      })));
+      return;
+    }
+
+    root.appendChild(U.section('Unidades cadastradas', 'Complete endereço, coordenada e formato'));
+    root.appendChild(el('div', { class: 'grid' }, U.card({
+      span: 'c12',
+      body: U.table(
+        [{ label: 'Unidade' }, { label: 'Formato' }, { label: 'Município' },
+        { label: 'Posição' }, { label: 'Raio', num: true }, { label: '' }],
+        Un.items.map(function (u) {
+          return {
+            cells: [
+              { v: u.nome },
+              { v: Un.rotuloFormato(u.formato) },
+              { v: u.municipio ? u.municipio + (u.uf ? ' · ' + u.uf : '') : '—' },
+              { v: Un.rotuloPrecisao(u.precisao), risk: u.precisao === 'ausente' },
+              { v: u.precisao === 'exata' ? MI.fmt.int(u.raio_m) + ' m' : '—', num: true },
+              {
+                v: pode
+                  ? el('div', { style: 'display:flex;gap:5px;justify-content:flex-end' }, [
+                    el('button', {
+                      class: 'icon-btn', title: 'Editar', html: MI.icon('spark', 14),
+                      onclick: function () { editorUnidade(u); }
+                    }),
+                    el('button', {
+                      class: 'icon-btn icon-btn--danger', title: 'Remover', html: MI.icon('trash', 14),
+                      onclick: function () {
+                        Un.remover(u.id).then(function () { MI.toast('Unidade removida.', 'ok'); MI.app.rerender(); })
+                          .catch(function (e) { MI.toast(e.message, 'error'); });
+                      }
+                    })
+                  ])
+                  : '—'
+              }
+            ]
+          };
+        })
+      )
+    })));
+  }
+
+  function editorUnidade(u) {
+    const Un = MI.unidades;
+    const novo = !u;
+    u = u || {};
+    const campo = function (label, input) {
+      return el('div', { class: 'field' }, [el('label', { class: 'field__label' }, label), input]);
+    };
+    const fNome = el('input', { class: 'input', value: u.nome || '' });
+    const fFormato = el('select', { class: 'input' }, Object.keys(Un.FORMATOS).map(function (k) {
+      return el('option', { value: k, text: Un.FORMATOS[k], selected: (u.formato || 'nao_informado') === k ? '' : null });
+    }));
+    const fUf = el('input', { class: 'input', value: u.uf || '', maxlength: '2', placeholder: 'SP' });
+    const fMun = el('input', { class: 'input', value: u.municipio || '', placeholder: 'São Paulo' });
+    const fEnd = el('input', { class: 'input', value: u.endereco || '', placeholder: 'Rua, número, bairro' });
+    const fLat = el('input', { class: 'input', value: u.lat == null ? '' : u.lat, placeholder: '-23.5705' });
+    const fLng = el('input', { class: 'input', value: u.lng == null ? '' : u.lng, placeholder: '-46.6880' });
+    const fRaio = el('input', { class: 'input', type: 'number', value: u.raio_m || 3000, min: '100', max: '50000' });
+    const fArea = el('input', { class: 'input', type: 'number', value: u.area_m2 == null ? '' : u.area_m2, placeholder: 'm²' });
+    const fAbertura = el('input', { class: 'input', type: 'date', value: u.aberta_em || '' });
+
+    const m = U.modal({
+      title: novo ? 'Cadastrar unidade' : u.nome,
+      body: [
+        el('div', { style: 'display:grid;grid-template-columns:repeat(2,1fr);gap:12px' }, [
+          campo('Nome', fNome),
+          campo('Formato', fFormato),
+          campo('UF', fUf),
+          campo('Município', fMun),
+          campo('Endereço', fEnd),
+          campo('Inaugurada em', fAbertura),
+          campo('Latitude', fLat),
+          campo('Longitude', fLng),
+          campo('Raio operacional (m)', fRaio),
+          campo('Área (m²)', fArea)
+        ]),
+        el('div', { style: 'margin-top:14px' }, U.note(null, [
+          el('strong', { text: 'A precisão é deduzida do que você preencher. ' }),
+          'Com latitude e longitude a unidade fica exata e ganha raio no mapa. Só com município, ela entra como ' +
+          'aproximada e aparece no centro do município. Sem nenhum dos dois, fica fora do mapa.'
+        ]))
+      ],
+      actions: [
+        U.btn(novo ? 'Cadastrar' : 'Salvar', {
+          variant: 'accent', icon: 'check',
+          onClick: function () {
+            const dados = {
+              nome: fNome.value.trim(),
+              formato: fFormato.value,
+              uf: fUf.value.trim().toUpperCase() || null,
+              municipio: fMun.value.trim() || null,
+              endereco: fEnd.value.trim() || null,
+              lat: fLat.value.trim(),
+              lng: fLng.value.trim(),
+              raio_m: fRaio.value,
+              area_m2: fArea.value === '' ? null : Number(fArea.value),
+              aberta_em: fAbertura.value || null
+            };
+            if (!dados.nome) { MI.toast('O nome da unidade é obrigatório.', 'error'); return; }
+            const p = novo ? Un.adicionar(dados) : Un.salvar(u.id, dados);
+            p.then(function () {
+              m.close();
+              MI.toast(novo ? 'Unidade cadastrada.' : 'Unidade atualizada.', 'ok');
+              MI.app.rerender();
+            }).catch(function (e) { MI.toast(e.message || String(e), 'error'); });
+          }
+        }),
+        U.btn('Cancelar', { variant: 'ghost', onClick: function () { m.close(); } })
+      ]
+    });
   }
 
   /* ================= Perfis de acesso ================= */

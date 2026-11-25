@@ -326,7 +326,7 @@ window.MI = window.MI || {};
 
     /* Mesma ordem para as transações: publicada primeiro, demonstrativa depois. */
     carregarTransacoes: function () {
-      if (MI.tx.has()) return;
+      if (MI.tx.has()) { app.carregarUnidades(); return; }
       if (MI.remote && MI.remote.disponivel()) {
         MI.remote.ativa('transacoes')
           .then(function (meta) {
@@ -339,10 +339,28 @@ window.MI = window.MI || {};
           .catch(function (e) {
             console.error('Transações publicadas não carregaram:', e);
             app.gerarTransacoesDemo();
-          });
+          })
+          .then(function () { app.carregarUnidades(); });
         return;
       }
       app.gerarTransacoesDemo();
+      app.carregarUnidades();
+    },
+
+    /* As unidades vêm depois das transações porque é delas que saem as
+       que ainda não existem: o nome da loja já está em cada venda, e
+       ninguém deveria ter que redigitá-lo num cadastro. */
+    carregarUnidades: function () {
+      if (!MI.unidades || !MI.unidades.disponivel()) return;
+      MI.unidades.carregar()
+        .then(function () { return MI.unidades.semear(); })
+        .then(function (r) {
+          if (r && r.criadas) {
+            MI.toast(MI.fmt.int(r.criadas) + ' unidades entraram no cadastro a partir das transações.', 'ok');
+          }
+          if (app.current === 'geography' || app.current === 'settings') app.renderView();
+        })
+        .catch(function (e) { console.error('Unidades:', e); });
     },
 
     /* Geração em segundo plano, depois que a interface já está utilizável. */

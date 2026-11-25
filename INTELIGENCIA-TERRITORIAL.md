@@ -99,3 +99,41 @@ incremento que destrava P2 e P3 ao mesmo tempo.
 
 Enquanto não houver coordenada, qualquer raio de cobertura seria desenho,
 não medida.
+
+## P2 (parcial) — Unidades
+
+Implementado em 25/11/2026: a loja deixou de ser texto livre e virou
+entidade, na tabela `units` do Supabase (RLS: lê quem é membro da
+organização, escreve só o administrador da Smoov).
+
+As unidades nascem sozinhas a partir do campo `_unidade` das transações.
+Município e UF saem da maioria entre os clientes que compraram ali — o que
+é dedução, então a unidade nasce como "aproximada pelo município", nunca
+como endereço.
+
+### Precisão é um campo, não uma suposição
+
+| Precisão | Como é posicionada | Raio de cobertura |
+|---|---|---|
+| `exata` | latitude e longitude informadas, projetadas na malha | sim |
+| `municipio` | centróide do município | **não** |
+| `ausente` | fora do mapa | não |
+
+Três quilômetros em volta do centróide de um município não medem nada. O
+botão de raio fica desabilitado enquanto nenhuma unidade tiver coordenada,
+com o motivo no título.
+
+As malhas municipais passaram a carregar os parâmetros de projeção
+(`proj: {minX, minY, k}`), o que permite converter coordenada em posição no
+desenho e medir distância: 3 km equivalem a 3,35 unidades do desenho em São
+Paulo. A projeção preserva área, não distância, então isso vale para raios
+de poucos quilômetros e não substitui cálculo geodésico.
+
+### Ainda falta para fechar o P2
+
+- Sobreposição entre áreas de cobertura e áreas descobertas
+- População potencialmente atendida (depende do P4)
+- Simulação de abertura e canibalização
+
+Nada disso é possível antes de existirem coordenadas reais. Hoje o cadastro
+está pronto para recebê-las.

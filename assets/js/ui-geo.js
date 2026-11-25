@@ -208,6 +208,37 @@ window.MI = window.MI || {};
     return idx;
   };
 
+  /* Mesma projeção da geração das malhas, agora no sentido de ida: uma
+     coordenada informada vira posição no desenho do estado. Os parâmetros
+     de escala viajam dentro de cada malha, então não há número mágico aqui.
+     Sem eles — malha antiga em cache — devolve null em vez de chutar. */
+  const RAD = Math.PI / 180;
+  const f1 = -2 * RAD, f2 = -30 * RAD, f0 = -15 * RAD, l0 = -54 * RAD;
+  const nCone = (Math.sin(f1) + Math.sin(f2)) / 2;
+  const CCone = Math.cos(f1) * Math.cos(f1) + 2 * nCone * Math.sin(f1);
+  const rho0 = Math.sqrt(CCone - 2 * nCone * Math.sin(f0)) / nCone;
+  const RAIO_TERRA_M = 6371000;
+
+  G.projetarNaUf = function (uf, lat, lng) {
+    const M = MI.GEO_MUN && MI.GEO_MUN[uf];
+    if (!M || !M.proj || lat == null || lng == null) return null;
+    const f = lat * RAD, l = lng * RAD;
+    const r = Math.sqrt(CCone - 2 * nCone * Math.sin(f)) / nCone;
+    const t = nCone * (l - l0);
+    const X = r * Math.sin(t), Y = -(rho0 - r * Math.cos(t));
+    return [(X - M.proj.minX) * M.proj.k, (Y - M.proj.minY) * M.proj.k];
+  };
+
+  /* Quantas unidades do desenho valem N metros naquele estado. A projeção
+     preserva área, não distância, mas perto dos paralelos padrão a
+     diferença é pequena o bastante para um raio de poucos quilômetros —
+     o que não vale é tratar isso como medida geodésica. */
+  G.metrosEmUnidades = function (uf, metros) {
+    const M = MI.GEO_MUN && MI.GEO_MUN[uf];
+    if (!M || !M.proj) return null;
+    return (metros / RAIO_TERRA_M) * M.proj.k;
+  };
+
   /* dist: distribuição por nome de cidade, já sujeita à supressão. */
   G.mapaUf = function (uf, dist, opts) {
     opts = opts || {};

@@ -33,6 +33,12 @@ window.MI = window.MI || {};
   const NS = 'http://www.w3.org/2000/svg';
   const W = {};
 
+  /* Preferências de leitura sobrevivem ao re-render. Cada seleção no mapa
+     refaz o componente, e sem isto a camada de unidades e a métrica
+     escolhida voltavam ao padrão a cada clique — o usuário ligava o raio,
+     clicava num município e o raio sumia. */
+  const PREF = { verUnidades: true, verRaios: false, metrica: 'clientes' };
+
   function svgEl(nome, attrs) {
     const n = document.createElementNS(NS, nome);
     if (attrs) Object.keys(attrs).forEach(function (k) {
@@ -137,9 +143,10 @@ window.MI = window.MI || {};
 
     const ag = agregar(opts.rows, opts.campo);
     const metricas = metricasDisponiveis();
+    const metricaSalva = metricas.filter(function (m) { return m.id === PREF.metrica; })[0];
     const S = {
       k: 1, tx: 0, ty: 0,
-      metrica: metricas[0],
+      metrica: metricaSalva || metricas[0],
       hover: null,
       /* O painel abre por padrão na tela larga: ocupa com conteúdo útil a
          faixa que sobraria ao lado de um mapa quase quadrado, e é por ele
@@ -178,8 +185,10 @@ window.MI = window.MI || {};
         : 'Mapa do Brasil por unidade da federação'
     });
     const camada = svgEl('g', { class: 'geo__camada' });
+    const camadaUnidades = svgEl('g', { class: 'geo__unidades' });
     const camadaRotulos = svgEl('g', { class: 'geo__rotulos' });
     svg.appendChild(camada);
+    camada.appendChild(camadaUnidades);
     svg.appendChild(camadaRotulos);
 
     const porId = {};
@@ -221,6 +230,7 @@ window.MI = window.MI || {};
     /* ---------- zoom e deslocamento ---------- */
     function aplicar() {
       camada.setAttribute('transform', 'translate(' + S.tx + ' ' + S.ty + ') scale(' + S.k + ')');
+      redimensionarMarcas();
       agendarRotulos();
       botaoReset.disabled = S.k === 1 && S.tx === 0 && S.ty === 0;
     }
@@ -402,6 +412,78 @@ window.MI = window.MI || {};
       });
     }
 
+    /* ---------- camada de unidades ----------
+       Cada unidade entra com a posição que a precisão dela permite, e o
+       desenho diz qual é: coordenada informada vira ponto cheio; município
+       vira ponto vazado, porque é o centro do município, não a porta da
+       loja. O raio de cobertura só sai para quem tem coordenada — um
+       círculo de 3 km em volta de um centróide não mede nada. */
+    S.verUnidades = PREF.verUnidades;
+    S.verRaios = PREF.verRaios;
+
+    function posicaoDaUnidade(u) {
+      if (nivel === 'brasil') {
+        const c = u.uf && fonteGeo.centros[u.uf];
+        return c ? { p: c, aproximada: true } : null;
+      }
+      if (u.uf !== opts.uf) return null;
+      if (u.precisao === 'exata') {
+        const p = MI.geo.projetarNaUf(opts.uf, u.lat, u.lng);
+        if (p) return { p: p, aproximada: false };
+      }
+      if (u.municipio) {
+        const idx = MI.geo.indiceMunicipios(opts.uf);
+        const cod = idx && idx[MI.slug(u.municipio)];
+        const m = cod && fonteGeo.municipios[cod];
+        if (m) return { p: m.c, aproximada: true };
+      }
+      return null;
+    }
+
+    /* Quantas unidades do viewBox valem um pixel de tela. O marcador precisa
+       ter tamanho constante em PIXEL: dimensioná-lo em unidades do desenho
+       fazia o ponto virar sub-pixel assim que o mapa aproximava. */
+    function unidadesPorPixel() {
+      const r = svg.getBoundingClientRect();
+      if (!r.width || !r.height) return 1;
+      return 1 / Math.min(r.width / S.largura, r.height / S.altura);
+    }
+    function raioMarca() { return (4.6 * unidadesPorPixel()) / S.k; }
+
+    function desenharUnidades() {
+      while (camadaUnidades.firstChild) camadaUnidades.removeChild(camadaUnidades.firstChild);
+      if (!S.verUnidades || !MI.unidades) return;
+      const lista = MI.unidades.posicionaveis();
+      lista.forEach(function (u) {
+        const pos = posicaoDaUnidade(u);
+        if (!pos) return;
+        if (S.verRaios && !pos.aproximada && nivel === 'uf') {
+          const raio = MI.geo.metrosEmUnidades(opts.uf, u.raio_m || 3000);
+          if (raio) {
+            camadaUnidades.appendChild(svgEl('circle', {
+              cx: pos.p[0], cy: pos.p[1], r: raio,
+              class: 'geo__raio geo__raio--' + (u.formato || 'nao_informado')
+            }));
+          }
+        }
+        const marca = svgEl('circle', {
+          cx: pos.p[0], cy: pos.p[1], r: raioMarca(),
+          class: 'geo__unidade geo__unidade--' + (u.formato || 'nao_informado') +
+            (pos.aproximada ? ' is-aprox' : '')
+        });
+        marca.setAttribute('vector-effect', 'non-scaling-stroke');
+        marca.setAttribute('data-unidade', u.id);
+        camadaUnidades.appendChild(marca);
+      });
+    }
+
+    /* o raio do marcador compensa o zoom para não virar um disco gigante */
+    function redimensionarMarcas() {
+      const marcas = camadaUnidades.querySelectorAll('.geo__unidade');
+      const r = raioMarca();
+      for (let i = 0; i < marcas.length; i++) marcas[i].setAttribute('r', r);
+    }
+
     /* ---------- dica ---------- */
     function textoDica(f) {
       const linhas = [el('strong', { text: f.nome })];
@@ -417,6 +499,24 @@ window.MI = window.MI || {};
 
     svg.addEventListener('pointermove', function (ev) {
       if (arrastando) return;
+      /* a unidade tem prioridade na dica: ela está por cima do polígono e é
+         o que o cursor está mirando */
+      const uEl = ev.target.closest ? ev.target.closest('[data-unidade]') : null;
+      if (uEl && MI.unidades) {
+        const u = MI.unidades.items.filter(function (x) { return x.id === uEl.getAttribute('data-unidade'); })[0];
+        if (u) {
+          MI.clear(dica);
+          dica.appendChild(el('strong', { text: u.nome }));
+          dica.appendChild(el('span', { text: MI.unidades.rotuloFormato(u.formato) }));
+          dica.appendChild(el('span', { text: MI.unidades.rotuloPrecisao(u.precisao) }));
+          if (u.municipio) dica.appendChild(el('span', { text: u.municipio + (u.uf ? ' · ' + u.uf : '') }));
+          const r = palco.getBoundingClientRect();
+          dica.hidden = false;
+          dica.style.left = Math.min(r.width - 12, Math.max(12, ev.clientX - r.left)) + 'px';
+          dica.style.top = (ev.clientY - r.top - 14) + 'px';
+          return;
+        }
+      }
       const alvo = ev.target.closest ? ev.target.closest('[data-id]') : null;
       const id = alvo ? alvo.getAttribute('data-id') : null;
       if (id !== S.hover) {
@@ -465,9 +565,12 @@ window.MI = window.MI || {};
     });
 
     const seletorMetrica = el('select', { class: 'input input--sm geo__metrica', 'aria-label': 'Métrica do mapa' },
-      metricas.map(function (m) { return el('option', { value: m.id, text: m.rotulo }); }));
+      metricas.map(function (m) {
+        return el('option', { value: m.id, text: m.rotulo, selected: m.id === S.metrica.id ? '' : null });
+      }));
     seletorMetrica.addEventListener('change', function () {
       S.metrica = metricas.filter(function (m) { return m.id === seletorMetrica.value; })[0] || metricas[0];
+      PREF.metrica = S.metrica.id;
       recalcular(); pintar(); agendarRotulos(); atualizarLegenda();
     });
 
@@ -524,9 +627,37 @@ window.MI = window.MI || {};
       raiz.classList.toggle('is-com-painel', S.painel);
     }, el('span', { html: MI.icon('chevron', 15) }));
 
+    /* Camadas operacionais. Ficam desligadas quando não há o que mostrar, e
+       com o motivo no título: botão que não faz nada é pior que botão
+       ausente. */
+    const bal = MI.unidades ? MI.unidades.balanco() : { total: 0, exatas: 0 };
+    const alternador = function (rotulo, ligado, habilitado, titulo, aoMudar) {
+      const b = el('button', {
+        class: 'geo__camada-btn' + (ligado ? ' is-on' : ''), type: 'button',
+        title: titulo, disabled: !habilitado,
+        onclick: function () {
+          const novo = !b.classList.contains('is-on');
+          b.classList.toggle('is-on', novo);
+          aoMudar(novo);
+        }
+      }, rotulo);
+      return b;
+    };
+
+    const btnUnidades = alternador('Unidades', S.verUnidades, bal.total > 0,
+      bal.total ? MI.fmt.int(bal.total) + ' unidades cadastradas' : 'Nenhuma unidade cadastrada ainda',
+      function (v) { S.verUnidades = v; PREF.verUnidades = v; desenharUnidades(); });
+
+    const btnRaios = alternador('Raio 3 km', S.verRaios, nivel === 'uf' && bal.exatas > 0,
+      nivel !== 'uf' ? 'O raio só faz sentido dentro de um estado'
+        : bal.exatas ? 'Cobertura das unidades com coordenada informada'
+          : 'Nenhuma unidade tem coordenada: o raio sairia em volta do centro do município',
+      function (v) { S.verRaios = v; PREF.verRaios = v; desenharUnidades(); });
+
     const barra = el('div', { class: 'geo__barra' }, [
       trilha,
       el('div', { class: 'geo__barra-dir' }, [
+        el('div', { class: 'geo__camadas' }, [btnUnidades, btnRaios]),
         el('div', { class: 'geo__campo-busca' }, [busca, sugestoes]),
         seletorMetrica,
         botaoPainel
@@ -641,6 +772,7 @@ window.MI = window.MI || {};
     if (S.painel) raiz.classList.add('is-com-painel');
 
     pintar();
+    desenharUnidades();
     /* Medir texto exige layout pronto. Um setTimeout sozinho chegava cedo
        demais e todo rótulo era podado por getBBox zerado — daí o observador,
        que também cobre redimensionamento de janela e entrada em tela cheia. */
@@ -656,7 +788,7 @@ window.MI = window.MI || {};
       if (sel) enquadrar(sel, false);
     }, 0);
 
-    raiz._reagir = function () { recalcular(); pintar(); agendarRotulos(); atualizarLegenda(); montarPainel(); };
+    raiz._reagir = function () { recalcular(); pintar(); desenharUnidades(); agendarRotulos(); atualizarLegenda(); montarPainel(); };
     return raiz;
   };
 
