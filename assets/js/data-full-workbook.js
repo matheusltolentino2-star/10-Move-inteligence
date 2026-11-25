@@ -104,31 +104,32 @@ window.MI = window.MI || {};
     return Object.fromEntries(Array.from(tag.matchAll(/([\w:]+)="([^"]*)"/g), m => [m[1], unescape(m[2])]));
   }
 
-  async function* elements(content, name) {
-    const opening = new RegExp('<' + name + '(?=[\\s>])');
+  async function* elementBatches(content, name) {
+    const opening = new RegExp('<' + name + '(?=[\\s>])', 'g');
     const ending = '</' + name + '>';
     let pending = '';
     for await (const block of content) {
       pending += block;
-      let from = 0;
-      for (;;) {
-        const first = pending.slice(from).search(opening);
-        if (first < 0) {
-          pending = pending.slice(Math.max(from, pending.length - name.length - 2));
-          break;
-        }
-        const start = from + first;
+      const batch = [];
+      opening.lastIndex = 0;
+      let consumed = 0, match;
+      while ((match = opening.exec(pending))) {
+        const start = match.index;
         const stop = pending.indexOf(ending, start);
         if (stop < 0) {
-          pending = pending.slice(start);
+          consumed = start;
           break;
         }
-        const after = stop + ending.length;
-        yield pending.slice(start, after);
-        from = after;
+        consumed = stop + ending.length;
+        batch.push(pending.slice(start, consumed));
+        opening.lastIndex = consumed;
       }
+      if (!match) consumed = Math.max(consumed, pending.length - name.length - 2);
+      pending = pending.slice(consumed);
       requireValid(pending.length < 2_000_000, 'Uma linha do Excel excede o tamanho suportado.');
+      if (batch.length) yield batch;
     }
+    opening.lastIndex = 0;
     requireValid(!opening.test(pending), 'O Excel contém uma linha incompleta.');
   }
 
@@ -202,6 +203,20 @@ window.MI = window.MI || {};
   }
 
   MI.fullWorkbook = {
+    async isFullBatch(file) {
+      if (!/\.xlsx$/i.test(file.name)) return false;
+      try {
+        const workbook = await zip(file);
+        const meta = await string(workbook.content('xl/workbook.xml'));
+        const names = new Set(Array.from(meta.matchAll(/<sheet\s[^>]+>/g), m => attributes(m[0]).name));
+        return ['metadados', 'clientes', 'catalogo', 'geografia', 'operacao', 'matriz_integracao', 'gabarito_cenarios']
+          .every(name => names.has(name)) &&
+          ['pedidos', 'itens'].every(name => names.has(name) || names.has(name + '_01'));
+      } catch (_) {
+        return false;
+      }
+    },
+
     async open(file) {
       const workbook = await zip(file);
       const rel = await string(workbook.content('xl/_rels/workbook.xml.rels'));
@@ -222,24 +237,30 @@ window.MI = window.MI || {};
       }
       const shared = [];
       if (workbook.has('xl/sharedStrings.xml')) {
-        for await (const si of elements(workbook.content('xl/sharedStrings.xml'), 'si')) {
-          requireValid(shared.length < 4_500_000, 'O XLSX contém textos demais para o lote.');
-          shared.push(richText(si));
+        for await (const batch of elementBatches(workbook.content('xl/sharedStrings.xml'), 'si')) {
+          requireValid(shared.length + batch.length <= 4_500_000, 'O XLSX contém textos demais para o lote.');
+          for (const si of batch) shared.push(richText(si));
         }
       }
-      return {
-        names: Array.from(sheets.keys()),
-        async *rows(name) {
-          const source = sheets.get(name);
-          requireValid(source, 'Aba ausente: ' + name);
-          let expected = 1;
-          for await (const row of elements(workbook.content(source), 'row')) {
+      async function* rowBatches(name) {
+        const source = sheets.get(name);
+        requireValid(source, 'Aba ausente: ' + name);
+        let expected = 1;
+        for await (const batch of elementBatches(workbook.content(source), 'row')) {
+          yield batch.map(row => {
             const address = /^<row\b[^>]*\br="(\d+)"/.exec(row)?.[1];
             requireValid(address === undefined || Number(address) === expected,
               'Linhas faltantes ou fora de ordem em ' + name + ': ' + expected);
             expected++;
-            yield cells(row, shared);
-          }
+            return cells(row, shared);
+          });
+        }
+      }
+      return {
+        names: Array.from(sheets.keys()),
+        rowBatches,
+        async *rows(name) {
+          for await (const batch of rowBatches(name)) yield* batch;
         }
       };
     }

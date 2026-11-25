@@ -132,27 +132,88 @@ window.MI = window.MI || {};
     opts = opts || {};
     const seg = X.porDimensao(itensSegmento, campo, {});
     const base = X.porDimensao(itensBase, campo, {});
-    const bMap = new Map();
-    base.forEach(function (e) { bMap.set(e.label, e); });
+    const bMap = new Map(base.map(e => [e.label, e]));
+    return indicesAfinidade(seg, seg.totalQtd, bMap, base.totalQtd, opts.minQtd || 30);
+  };
+
+  function indicesAfinidade(segmento, totalSegmento, base, totalBase, minQtd) {
     const out = [];
-    seg.forEach(function (e) {
-      const b = bMap.get(e.label);
+    segmento.forEach(function (e) {
+      const b = base.get(e.label);
       if (!b) return;
-      if (e.qtd < (opts.minQtd || 30)) return;
-      const segShare = seg.totalQtd ? e.qtd / seg.totalQtd : 0;
-      const baseShare = base.totalQtd ? b.qtd / base.totalQtd : 0;
+      if (e.qtd < minQtd) return;
+      const segShare = totalSegmento ? e.qtd / totalSegmento : 0;
+      const baseShare = totalBase ? b.qtd / totalBase : 0;
       if (!baseShare) return;
       out.push({
         label: e.label, index: (segShare / baseShare) * 100,
         segQtd: e.qtd, baseQtd: b.qtd, segShare: segShare, baseShare: baseShare,
-        ticket: e.ticket
+        ticket: e.qtd ? e.valor / e.qtd : null
       });
     });
     out.sort(function (a, b) { return b.index - a.index; });
     return out;
+  }
+
+  X.afinidadePorGrupo = function (items, por, campo, minItens, minQtd) {
+    const grupos = new Map();
+    const base = new Map(X.porDimensao(items, campo).map(e => [e.label, e]));
+    const totalBase = MI.sum(Array.from(base.values()), e => e.qtd);
+    for (const item of items) {
+      const chave = item[por], label = item[campo], qtd = item._qtd || 1;
+      let grupo = grupos.get(chave);
+      if (!grupo) {
+        grupo = {itens:0, qtd:0, categorias:new Map()};
+        grupos.set(chave, grupo);
+      }
+      grupo.itens++;
+      grupo.qtd += qtd;
+      let categoria = grupo.categorias.get(label);
+      if (!categoria) {
+        categoria = {label, qtd:0, valor:0};
+        grupo.categorias.set(label, categoria);
+      }
+      categoria.qtd += qtd;
+      categoria.valor += item._valor ?? 0;
+    }
+    const resultado = new Map();
+    for (const [chave, grupo] of grupos) {
+      if (grupo.itens < minItens) continue;
+      const categorias = Array.from(grupo.categorias.values()).sort((a,b)=>b.qtd-a.qtd);
+      resultado.set(chave, {itens:grupo.itens, afinidade:indicesAfinidade(categorias, grupo.qtd, base, totalBase, minQtd)});
+    }
+    return resultado;
   };
 
   /* Agregação por pedido: ticket e número de itens */
+  X.resumoPedidosDoLote = function (items, totalPedidos) {
+    const vistos = new Uint8Array(totalPedidos + 1);
+    const porPedido = new Float64Array(totalPedidos + 1);
+    let pedidos = 0;
+    for (const item of items) {
+      const indice = item._pedidoIndice;
+      if (!vistos[indice]) {
+        vistos[indice] = 1;
+        pedidos++;
+      }
+      porPedido[indice] += item._valor ?? 0;
+    }
+    if (!pedidos) return null;
+    const valores = new Float64Array(pedidos);
+    let positivos = 0, receita = 0;
+    for (const valor of porPedido) {
+      receita += valor;
+      if (valor > 0) valores[positivos++] = valor;
+    }
+    const tickets = valores.subarray(0, positivos).sort();
+    const quantil = p => positivos ? tickets[Math.min(positivos - 1, Math.floor(positivos * p))] : null;
+    return {
+      pedidos, itensPorPedido: items.length / pedidos, receita,
+      ticketMedio: positivos ? MI.sum(tickets) / positivos : null,
+      ticketMediana: quantil(0.5), ticketP90: quantil(0.9)
+    };
+  };
+
   X.porPedido = function (items) {
     const m = new Map();
     for (let i = 0; i < items.length; i++) {
@@ -178,14 +239,26 @@ window.MI = window.MI || {};
   };
 
   /* Recorrência: pedidos por cliente e taxa de recompra */
-  X.recorrencia = function (items) {
+  X.recorrencia = function (items, totalPedidosDoLote) {
+    const pedidosDoLote = totalPedidosDoLote ? new Uint8Array(totalPedidosDoLote + 1) : null;
     const porCliente = new Map();
     for (let i = 0; i < items.length; i++) {
-      const c = items[i]._cliente, p = items[i]._pedido;
+      const c = items[i]._cliente;
       if (!c) continue;
       let e = porCliente.get(c);
-      if (!e) { e = { pedidos: new Set(), valor: 0, primeira: null, ultima: null }; porCliente.set(c, e); }
-      if (p) e.pedidos.add(p);
+      if (!e) {
+        e = { pedidos: pedidosDoLote ? 0 : new Set(), valor: 0, primeira: null, ultima: null };
+        porCliente.set(c, e);
+      }
+      if (pedidosDoLote) {
+        const indice = items[i]._pedidoIndice;
+        if (!pedidosDoLote[indice]) {
+          pedidosDoLote[indice] = 1;
+          e.pedidos++;
+        }
+      } else if (items[i]._pedido) {
+        e.pedidos.add(items[i]._pedido);
+      }
       if (items[i]._valor != null) e.valor += items[i]._valor;
       const d = items[i]._data;
       if (d) {
@@ -202,7 +275,7 @@ window.MI = window.MI || {};
 
     let totalPedidos = 0, recompradores = 0, intervalos = [];
     porCliente.forEach(function (e) {
-      const n = e.pedidos.size || 1;
+      const n = (pedidosDoLote ? e.pedidos : e.pedidos.size) || 1;
       totalPedidos += n;
       if (n > 1) {
         recompradores++;
@@ -230,30 +303,68 @@ window.MI = window.MI || {};
 
   /* Produtos comprados juntos: co-ocorrência no mesmo pedido.
      suporte = pedidos com o par / pedidos; lift = suporte / (pA * pB). */
+  function cestasDoLote(items, totalPedidos, chave) {
+    const primeiras = new Uint32Array(totalPedidos + 1);
+    const seguintes = new Uint32Array(items.length + 1);
+    const ordem = new Uint32Array(totalPedidos);
+    let pedidos = 0;
+    for (let i = items.length; i > 0; i--) {
+      const item = items[i - 1], pedido = item._pedidoIndice;
+      seguintes[i] = primeiras[pedido];
+      primeiras[pedido] = i;
+    }
+    // As primeiras ocorrências preservam a ordem de desempate do leitor comum.
+    for (let i = 0; i < items.length; i++) {
+      const pedido = items[i]._pedidoIndice;
+      if (primeiras[pedido] === i + 1) ordem[pedidos++] = pedido;
+    }
+    return function (visitar) {
+      const produtos = new Set();
+      for (let n = 0; n < pedidos; n++) {
+        const pedido = ordem[n];
+        for (let i = primeiras[pedido]; i; i = seguintes[i]) {
+          const produto = chave(items[i - 1]);
+          if (produto) produtos.add(produto);
+        }
+        if (produtos.size) visitar(produtos);
+        produtos.clear();
+      }
+    };
+  }
+
   X.cesta = function (items, opts) {
     opts = opts || {};
-    const nivel = opts.nivel === 'categoria' ? '_cat' : 'produto';
-    const porPedido = new Map();
-    for (let i = 0; i < items.length; i++) {
-      const p = items[i]._pedido;
-      if (!p) continue;
-      const chave = nivel === '_cat' ? items[i]._cat : (items[i]._prod ? items[i]._prod.nome : items[i]._nome);
-      if (!chave) continue;
-      let s = porPedido.get(p);
-      if (!s) { s = new Set(); porPedido.set(p, s); }
-      s.add(chave);
+    const chave = opts.nivel === 'categoria' ? item => item._cat : item => item._prod ? item._prod.nome : item._nome;
+    let visitarCestas;
+    if (opts.totalPedidosDoLote) {
+      visitarCestas = cestasDoLote(items, opts.totalPedidosDoLote, chave);
+    } else {
+      const porPedido = new Map();
+      for (const item of items) {
+        const pedido = item._pedido, produto = chave(item);
+        if (!pedido || !produto) continue;
+        let cesta = porPedido.get(pedido);
+        if (!cesta) { cesta = new Set(); porPedido.set(pedido, cesta); }
+        cesta.add(produto);
+      }
+      visitarCestas = visitar => porPedido.forEach(visitar);
     }
-    if (!porPedido.size) return null;
 
     const contagem = new Map();
-    porPedido.forEach(function (s) { s.forEach(function (k) { contagem.set(k, (contagem.get(k) || 0) + 1); }); });
+    let nPedidos = 0;
+    visitarCestas(function (s) {
+      nPedidos++;
+      for (const k of s) contagem.set(k, (contagem.get(k) || 0) + 1);
+    });
+    if (!nPedidos) return null;
     /* limita aos mais frequentes para o número de pares ficar tratável */
     const topo = MI.mapToSorted(contagem, opts.topN || 30).map(function (e) { return e.label; });
     const noTopo = new Set(topo);
 
     const pares = new Map();
     let pedidosMulti = 0;
-    porPedido.forEach(function (s) {
+    visitarCestas(function (s) {
+      if (s.size < 2) return;
       const arr = Array.from(s).filter(function (k) { return noTopo.has(k); }).sort();
       if (arr.length < 2) return;
       pedidosMulti++;
@@ -265,7 +376,6 @@ window.MI = window.MI || {};
       }
     });
 
-    const nPedidos = porPedido.size;
     const out = [];
     pares.forEach(function (n, k) {
       if (n < (opts.minPedidos || 30)) return;

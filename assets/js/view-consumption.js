@@ -21,6 +21,7 @@ MI.views = MI.views || {};
       if (!T.has()) return semTransacoes(root);
 
       const lote = MI.fullData?.active;
+      const totalPedidosDoLote = lote?.items === T.items ? lote.stats.orders : null;
       const loteId = lote?.id || null;
       if (S.lote !== loteId) { S.lote = loteId; S.loja = ''; S.periodo = 'mes'; }
       const filtered = T.filtered();
@@ -70,7 +71,7 @@ MI.views = MI.views || {};
       root.appendChild(diagnostico(l));
 
       /* ---------- KPIs ---------- */
-      const ped = X.porPedido(items);
+      const ped = totalPedidosDoLote ? X.resumoPedidosDoLote(items, totalPedidosDoLote) : X.porPedido(items);
       const totalQtd = MI.sum(items, function (i) { return i._qtd || 1; });
       const totalValor = MI.sum(items, function (i) { return i._valor || 0; });
       const clientesNoRecorte = items === todos ? l.clientesDistintos : new Set(items.map(i=>i._cliente).filter(Boolean)).size;
@@ -193,7 +194,7 @@ MI.views = MI.views || {};
 
         root.appendChild(el('div', { class: 'grid' }, U.guarded('cons.horarios', function () {
           /* categoria × faixa horária */
-          const comFaixa = items.filter(function (i) { return i._hora != null && i._cat; });
+          const comFaixa = itensCom(items, function (i) { return i._hora != null && i._cat; });
           if (comFaixa.length < 50) {
             return U.card({ span: 'c12', title: 'Categoria por faixa horária', body: U.unavailable('Itens insuficientes com hora e categoria', ['Hora do pedido', 'Categoria']) });
           }
@@ -253,22 +254,21 @@ MI.views = MI.views || {};
 
           root.appendChild(el('div', { class: 'grid' }, U.guarded('cons.perfil', function () {
             const campo = S.dimPerfil;
-            const comAmbos = items.filter(function (i) { return i[campo] && i._cat; });
+            const comAmbos = itensCom(items, function (i) { return i[campo] && i._cat; });
             if (comAmbos.length < 50) {
               return U.card({ span: 'c12', title: 'Preferência por perfil', body: U.unavailable('Itens insuficientes com perfil e categoria', ['Identificador do cliente', 'Categoria']) });
             }
             const ct = X.cruzamento(comAmbos, campo, '_cat', { metrica: 'qtd', limitA: 10, limitB: 8 });
 
             /* índice de afinidade por grupo */
-            const grupos = MI.groupBy(comAmbos, campo);
+            const grupos = X.afinidadePorGrupo(comAmbos, campo, '_cat', Math.max(MI.privacy.k, 30), 25);
             const linhasAfin = [];
             ct.rowLabels.forEach(function (g) {
-              const sub = grupos.get(g) || [];
-              if (sub.length < Math.max(MI.privacy.k, 30)) return;
-              const af = X.afinidade(sub, comAmbos, '_cat', { minQtd: 25 });
-              if (af.length) {
+              const grupo = grupos.get(g);
+              if (grupo?.afinidade.length) {
+                const af = grupo.afinidade;
                 linhasAfin.push({
-                  grupo: g, n: sub.length,
+                  grupo: g, n: grupo.itens,
                   maior: af[0], menor: af[af.length - 1]
                 });
               }
@@ -331,7 +331,7 @@ MI.views = MI.views || {};
       }
 
       /* ---------- geografia ---------- */
-      const comUf = items.filter(function (i) { return i._uf && i._cat; });
+      const comUf = itensCom(items, function (i) { return i._uf && i._cat; });
       if (comUf.length >= 100) {
         root.appendChild(U.section('Diferenças entre localidades', 'Composição do consumo por estado'));
         root.appendChild(el('div', { class: 'grid' }, U.guarded('cons.geo', function () {
@@ -381,7 +381,7 @@ MI.views = MI.views || {};
       if (l.pedidos > 10) {
         root.appendChild(U.section('Produtos comprados juntos', 'Co-ocorrência no mesmo pedido'));
         root.appendChild(el('div', { class: 'grid' }, U.guarded('cons.cesta', function () {
-          const pares = X.cesta(items, { nivel: 'produto', topN: 28, minPedidos: Math.max(20, MI.privacy.k) });
+          const pares = X.cesta(items, { nivel: 'produto', topN: 28, minPedidos: Math.max(20, MI.privacy.k), totalPedidosDoLote });
           if (!pares || !pares.length) {
             return U.card({
               span: 'c12', title: 'Combinações de produtos',
@@ -420,7 +420,7 @@ MI.views = MI.views || {};
       }
 
       /* ---------- recorrência ---------- */
-      const rec = X.recorrencia(items);
+      const rec = X.recorrencia(items, totalPedidosDoLote);
       if (rec) {
         root.appendChild(U.section('Frequência e recorrência de compra', 'Comportamento de repetição dos clientes'));
         root.appendChild(el('div', { class: 'grid' }, U.guarded('cons.recorrencia', function () {
@@ -453,7 +453,7 @@ MI.views = MI.views || {};
 
       /* ---------- leituras ---------- */
       root.appendChild(U.section('Leituras de consumo', 'Consumo observado, característica demográfica, hipótese e recomendação — sempre separados'));
-      root.appendChild(el('div', { class: 'grid' }, leituras(items, l, ped, rec)));
+      root.appendChild(el('div', { class: 'grid' }, leituras(items, l, ped, rec, totalPedidosDoLote)));
 
       /* A base que alimenta esta tela se gerencia aqui, não numa tela
          distante: quem percebe que importou a planilha errada está olhando
@@ -470,6 +470,16 @@ MI.views = MI.views || {};
   };
 
   /* ================= Auxiliares ================= */
+  function itensCom(items, atende) {
+    const primeiroExcluido = items.findIndex(item => !atende(item));
+    if (primeiroExcluido < 0) return items;
+    const recorte = items.slice(0, primeiroExcluido);
+    for (let i = primeiroExcluido + 1; i < items.length; i++) {
+      if (atende(items[i])) recorte.push(items[i]);
+    }
+    return recorte;
+  }
+
   function seletorMetrica() {
     return el('div', { style: 'display:flex;gap:6px' }, [
       el('button', {
@@ -511,7 +521,7 @@ MI.views = MI.views || {};
     }));
   }
 
-  function leituras(items, l, ped, rec) {
+  function leituras(items, l, ped, rec, totalPedidosDoLote) {
     const fatos = [], demog = [], hip = [], acoes = [];
     const X2 = X;
 
@@ -573,13 +583,11 @@ MI.views = MI.views || {};
     }
 
     if (l.taxaCliente > 0.05) {
-      const comFaixa = items.filter(function (i) { return i._faixa && i._cat; });
+      const comFaixa = itensCom(items, function (i) { return i._faixa && i._cat; });
       if (comFaixa.length > 200) {
-        const grupos = MI.groupBy(comFaixa, '_faixa');
+        const grupos = X2.afinidadePorGrupo(comFaixa, '_faixa', '_cat', Math.max(MI.privacy.k, 50), 30);
         const achados = [];
-        grupos.forEach(function (sub, g) {
-          if (sub.length < Math.max(MI.privacy.k, 50)) return;
-          const af = X2.afinidade(sub, comFaixa, '_cat', { minQtd: 30 });
+        grupos.forEach(function ({afinidade: af}, g) {
           if (af.length && af[0].index >= 118) achados.push({ grupo: g, cat: af[0] });
         });
         achados.sort(function (a, b) { return b.cat.index - a.cat.index; });
@@ -603,7 +611,9 @@ MI.views = MI.views || {};
       }
     }
 
-    const pares = l.pedidos > 10 ? X2.cesta(items, { nivel: 'produto', topN: 24, minPedidos: Math.max(20, MI.privacy.k) }) : null;
+    const pares = l.pedidos > 10 ? X2.cesta(items, {
+      nivel: 'produto', topN: 24, minPedidos: Math.max(20, MI.privacy.k), totalPedidosDoLote
+    }) : null;
     if (pares && pares.length) {
       const p = pares[0];
       fatos.push({
