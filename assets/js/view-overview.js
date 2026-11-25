@@ -176,13 +176,14 @@ MI.views = MI.views || {};
         if (st.has('_uf')) {
           g2.push(U.guarded('geo.uf', function () {
             const d = MI.privacy.guardDist(S.dist(rows, '_uf', {}));
+            const cartograma = typeof MI.geo.cartogram === 'function';
             return U.card({
-              span: 'c6', title: 'Cartograma por estado',
-              sub: 'Grade esquemática do Brasil — intensidade conforme o volume de registros',
-              body: MI.geo.cartogram(d, {
+              span: 'c6', title: cartograma ? 'Cartograma por estado' : 'Registros por estado',
+              sub: cartograma ? 'Grade esquemática do Brasil — intensidade conforme o volume de registros' : 'Distribuição no recorte atual',
+              body: cartograma ? MI.geo.cartogram(d, {
                 selected: st.filters._uf ? Array.from(st.filters._uf.values) : [],
                 onSelect: function (uf) { MI.app.toggleCatValue('_uf', uf); }
-              })
+              }) : U.bars(d, {compact:true})
             });
           }));
         }

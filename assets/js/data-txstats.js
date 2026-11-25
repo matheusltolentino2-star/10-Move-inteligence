@@ -310,6 +310,40 @@ window.MI = window.MI || {};
     return out;
   };
 
+  X.porPeriodo = function (items, period) {
+    if (period === 'mes') return X.mensal(items);
+    const dates = new Map(), totals = new Map();
+    items.forEach(function (item) {
+      const d = item._data;
+      if (!d) return;
+      let entry = dates.get(d);
+      if (!entry) {
+        const y = d.getFullYear(), m = d.getMonth();
+        let key, label;
+        if (period === 'semana') {
+          const monday = new Date(y, m, d.getDate() - (d.getDay() + 6) % 7);
+          key = MI.fmt.dateIso(monday);
+          label = monday.toLocaleDateString('pt-BR');
+        } else if (period === 'trimestre') {
+          const quarter = Math.floor(m / 3) + 1;
+          key = y + '-0' + quarter;
+          label = 'T' + quarter + ' ' + y;
+        } else {
+          const index = m < 2 || m === 11 ? 3 : Math.floor((m - 2) / 3);
+          const year = m < 2 ? y - 1 : y;
+          key = year + '-0' + index;
+          label = ['Outono','Inverno','Primavera','Verão'][index] + ' ' + year + (index === 3 ? '/' + (year + 1) : '');
+        }
+        entry = totals.get(key) || { key, label, qtd:0, valor:0, itens:0 };
+        dates.set(d, entry); totals.set(key, entry);
+      }
+      entry.itens++;
+      entry.qtd += item._qtd || 1;
+      entry.valor += item._valor || 0;
+    });
+    return Array.from(totals.values()).sort((a,b)=>a.key.localeCompare(b.key));
+  };
+
   /* Distribuição por hora (0..23) */
   X.porHora = function (items) {
     const h = new Array(24).fill(0), v = new Array(24).fill(0);

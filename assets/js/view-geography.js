@@ -64,6 +64,9 @@ MI.views = MI.views || {};
           return;
         }
 
+        const detalhesLote = MI.fullData?.geographicDetail();
+        if (detalhesLote) root.appendChild(el('div', { class: 'grid' }, detalhesLote));
+
         /* A concentração acompanha o nível do mapa. Dentro de um estado,
            medir dependência "entre UFs" devolve sempre HHI 1,000 e uma
            unidade — número correto e inútil. O que importa ali é a
@@ -349,7 +352,7 @@ MI.views = MI.views || {};
      selecionada mostra a unidade, sem tirar o mapa da frente. */
   function painelTerritorial(host, ctx, uf, cidade, rows) {
     const u = geoEstado.unidade;
-    if (u) {
+    if (u && MI.unidades.items.includes(u)) {
       host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Unidade' }));
       host.appendChild(U.statline([
         { k: 'Formato', v: MI.unidades.rotuloFormato(u.formato) },
@@ -358,15 +361,16 @@ MI.views = MI.views || {};
         u.precisao === 'exata' ? { k: 'Raio', v: MI.fmt.int(u.raio_m) + ' m' } : null
       ].filter(Boolean)));
       if (u.endereco) host.appendChild(el('p', { class: 'geo__painel-txt', text: u.endereco }));
-      const vendas = MI.tx.has() ? MI.tx.items.filter(function (i) {
-        return i._unidade && MI.slug(i._unidade) === MI.slug(u.nome);
+      const nomeUnidade = MI.slug(u.nome);
+      const vendas = MI.tx.has() ? MI.tx.filtered().filter(function (i) {
+        return u.is_synthetic ? i._unidade === u.nome : i._unidade && MI.slug(i._unidade) === nomeUnidade;
       }) : [];
       if (vendas.length) {
         const receita = MI.sum(vendas, function (i) { return i._valor || 0; });
         const pedidos = new Set(vendas.map(function (i) { return i._pedido; })).size;
         host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Comercial' }));
         host.appendChild(U.statline([
-          { k: 'Itens vendidos', v: MI.fmt.int(vendas.length) },
+          { k: 'Itens vendidos', v: MI.fmt.int(MI.sum(vendas, function (i) { return i._qtd || 1; })) },
           { k: 'Pedidos', v: MI.fmt.int(pedidos) },
           { k: 'Receita', v: MI.fmt.money(receita) },
           { k: 'Ticket por pedido', v: pedidos ? MI.fmt.money(receita / pedidos) : '—' }
