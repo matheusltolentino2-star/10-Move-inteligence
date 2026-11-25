@@ -287,15 +287,35 @@ MI.views = MI.views || {};
       return;
     }
 
+    /* O bairro não tem geometria própria, mas tem recorte: sem ele na
+       trilha, quem clica num bairro no painel perde a referência de onde
+       está e o caminho de volta. */
+    const bairro = (function () {
+      const f = st.filters._bairro;
+      if (!f || !f.values || f.values.size !== 1) return null;
+      return Array.from(f.values)[0];
+    })();
+
+    /* Subir um nível limpa TUDO o que está abaixo dele. Limpar só o próprio
+       nível deixava o bairro preso depois de sair do município: a trilha
+       dizia "São Paulo / Industrial" com o estado inteiro no recorte, e o
+       número na tela não correspondia a lugar nenhum. */
+    const limpar = function () {
+      for (var i = 0; i < arguments.length; i++) st.setFilter(arguments[i], null);
+    };
     const crumbs = [{
       rotulo: 'Brasil',
-      aoClicar: uf ? function () { st.setFilter('_cidade', null); st.setFilter('_uf', null); } : null
+      aoClicar: (uf || cidade || bairro) ? function () { limpar('_bairro', '_cidade', '_uf'); } : null
     }];
     if (uf) crumbs.push({
       rotulo: MI.UF_NOMES[uf] || uf,
-      aoClicar: cidade ? function () { st.setFilter('_cidade', null); } : null
+      aoClicar: (cidade || bairro) ? function () { limpar('_bairro', '_cidade'); } : null
     });
-    if (cidade) crumbs.push({ rotulo: cidade, aoClicar: null });
+    if (cidade) crumbs.push({
+      rotulo: cidade,
+      aoClicar: bairro ? function () { limpar('_bairro'); } : null
+    });
+    if (bairro) crumbs.push({ rotulo: bairro, aoClicar: null });
 
     let feicoes, campo, chave, selecionado, enquadrarEm, titulo;
     if (nivel === 'brasil') {

@@ -261,9 +261,18 @@ window.MI = window.MI || {};
     const sugestoes = el('div', { class: 'geo__sugestoes', hidden: true });
     const seletor = el('select', { class: 'geo__metrica', 'aria-label': 'Métrica representada' });
     const camadas = el('div', { class: 'geo__camadas' });
+    const alternaPainel = el('button', {
+      class: 'geo__camada-btn is-on', type: 'button', title: 'Mostrar ou esconder o painel',
+      onclick: function () {
+        const fechado = M.raiz.classList.toggle('is-sem-painel');
+        alternaPainel.classList.toggle('is-on', !fechado);
+        setTimeout(function () { if (M.mapa) { M.mapa.invalidateSize(); agendarRotulos(); } }, 220);
+      }
+    }, 'Painel');
+
     const barra = el('header', { class: 'geo__barra' }, [
       trilha,
-      el('div', { class: 'geo__barra-dir' }, [camadas, el('div', { class: 'geo__campo' }, [busca, sugestoes]), seletor])
+      el('div', { class: 'geo__barra-dir' }, [camadas, el('div', { class: 'geo__campo' }, [busca, sugestoes]), seletor, alternaPainel])
     ]);
 
     const painel = el('aside', { class: 'geo__painel' });
@@ -298,6 +307,35 @@ window.MI = window.MI || {};
     L.control.zoom({ position: 'topright', zoomInTitle: 'Aproximar', zoomOutTitle: 'Afastar' }).addTo(mapa);
     L.control.scale({ position: 'bottomright', imperial: false }).addTo(mapa);
 
+    /* Reset e tela cheia existiam na versão anterior e sumiram na
+       reconstrução. Voltam como controles do próprio Leaflet, para ficarem
+       na mesma coluna do zoom em vez de competir noutro canto. */
+    const Extra = L.Control.extend({
+      options: { position: 'topright' },
+      onAdd: function () {
+        const d = L.DomUtil.create('div', 'leaflet-bar geo-extra');
+        const faz = function (rotulo, titulo, fn) {
+          const a = L.DomUtil.create('a', '', d);
+          a.href = '#'; a.title = titulo; a.setAttribute('role', 'button');
+          a.setAttribute('aria-label', titulo);
+          a.innerHTML = rotulo;
+          L.DomEvent.on(a, 'click', function (e) { L.DomEvent.stop(e); fn(); });
+          return a;
+        };
+        faz('⟲', 'Voltar ao enquadramento do nível', function () {
+          if (M.ctx && M.ctx.enquadrarEm) enquadrar(M.ctx.enquadrarEm);
+        });
+        faz('⛶', 'Tela cheia', function () {
+          const alvo = M.raiz;
+          if (document.fullscreenElement) document.exitFullscreen();
+          else if (alvo && alvo.requestFullscreen) alvo.requestFullscreen();
+          setTimeout(function () { if (M.mapa) M.mapa.invalidateSize(); agendarRotulos(); }, 260);
+        });
+        return d;
+      }
+    });
+    mapa.addControl(new Extra());
+
     /* ordem explícita: território embaixo, cobertura no meio, loja por cima */
     mapa.createPane('territorio').style.zIndex = 400;
     mapa.createPane('cobertura').style.zIndex = 450;
@@ -325,6 +363,8 @@ window.MI = window.MI || {};
         }
       }).addTo(mapa)
       : L.layerGroup([], { pane: 'unidades' }).addTo(mapa);
+    mapa.on('zoomend moveend', function () { agendarRotulos(); });
+
     M.mapa = mapa;
     M.pronto = true;
     return mapa;
@@ -422,6 +462,101 @@ window.MI = window.MI || {};
     });
     M.territorio.addLayer(camada);
     M.geo = camada;
+    agendarRotulos();
+  }
+
+  /* ---------------- Rótulos no mapa ----------------
+     A reconstrução em Leaflet tinha deixado o mapa SEM NOME NENHUM: só
+     polígonos coloridos e dica no hover. Identificar um estado virava
+     adivinhação, e isso custou mais do que o basemap trouxe.
+
+     Voltam como tooltips permanentes, que o Leaflet já posiciona e
+     reposiciona sozinho no pan e no zoom — e que não interceptam clique,
+     porque tooltip do Leaflet nasce com pointer-events desligado.
+
+     A poda é por colisão real: mede-se a caixa desenhada e esconde-se quem
+     chega depois, em ordem de relevância. Nenhum rótulo é escrito sobre um
+     polígono pequeno demais para ele. */
+  const MAX_ROTULOS = 16;
+
+  function limparRotulos() {
+    if (!M.porChave) return;
+    Object.keys(M.porChave).forEach(function (k) {
+      const l = M.porChave[k];
+      if (l && l._rotuloAtivo) { l.unbindTooltip(); l._rotuloAtivo = false; }
+    });
+  }
+
+  function textoRotulo(f, ctx, zoom) {
+    if (ctx.nivel !== 'brasil') return f.properties.nome;
+    /* sigla de longe, nome inteiro quando há espaço */
+    return zoom < 5.5 ? f.properties.uf : f.properties.nome;
+  }
+
+  let pendenteRotulos = null;
+  function agendarRotulos() {
+    if (pendenteRotulos) clearTimeout(pendenteRotulos);
+    pendenteRotulos = setTimeout(function () { pendenteRotulos = null; desenharRotulos(); }, 110);
+  }
+
+  function desenharRotulos() {
+    const ctx = M.ctx;
+    if (!ctx || !M.mapa || !M.porChave) return;
+    limparRotulos();
+    if (ctx.nivel === 'municipio') return;   /* um polígono só: o título já diz */
+
+    const zoom = M.mapa.getZoom();
+    const limites = M.mapa.getBounds();
+    const candidatos = ctx.feicoes.features.filter(function (f) {
+      const c = f.properties.caixa;
+      /* fora de vista não entra na disputa por espaço */
+      return limites.intersects([[c[0][0], c[0][1]], [c[1][0], c[1][1]]]);
+    }).sort(function (a, b) {
+      const sa = ctx.selecionado === ctx.chave(a) ? 1 : 0;
+      const sb = ctx.selecionado === ctx.chave(b) ? 1 : 0;
+      if (sa !== sb) return sb - sa;
+      return (b._v || 0) - (a._v || 0);
+    });
+
+    const caixas = [];
+    let postos = 0;
+    for (let i = 0; i < candidatos.length && postos < MAX_ROTULOS; i++) {
+      const f = candidatos[i];
+      const layer = M.porChave[ctx.chave(f)];
+      if (!layer) continue;
+
+      /* o polígono precisa caber o texto na tela, senão o rótulo tapa a
+         geometria que deveria nomear */
+      const c = f.properties.caixa;
+      const p1 = M.mapa.latLngToContainerPoint([c[0][0], c[0][1]]);
+      const p2 = M.mapa.latLngToContainerPoint([c[1][0], c[1][1]]);
+      const larg = Math.abs(p2.x - p1.x), alt = Math.abs(p2.y - p1.y);
+      const texto = textoRotulo(f, ctx, zoom);
+
+      /* Os primeiros da fila são os que o usuário procura, e num estado com
+         645 municípios quase nenhum polígono comporta o próprio nome. Para
+         esses, o rótulo sai mesmo apertado — a poda por colisão abaixo
+         continua impedindo que um cubra o outro. */
+      const prioritario = postos < 6;
+      const minAlt = prioritario ? 6 : 16;
+      const minLarg = texto.length * (prioritario ? 2.2 : 5.2);
+      if (alt < minAlt || larg < minLarg) continue;
+
+      layer.bindTooltip(texto, {
+        permanent: true, direction: 'center', className: 'geo-rotulo', opacity: 1
+      }).openTooltip();
+      layer._rotuloAtivo = true;
+
+      const elTip = layer.getTooltip() && layer.getTooltip().getElement();
+      if (!elTip) continue;
+      const r = elTip.getBoundingClientRect();
+      const bate = caixas.some(function (o) {
+        return !(r.right < o.left || r.left > o.right || r.bottom < o.top || r.top > o.bottom);
+      });
+      if (bate) { layer.unbindTooltip(); layer._rotuloAtivo = false; continue; }
+      caixas.push(r);
+      postos++;
+    }
   }
 
   /* ---------------- Unidades e cobertura ---------------- */
