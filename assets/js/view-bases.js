@@ -120,11 +120,15 @@ window.MI = window.MI || {};
     return el('div', { class: 'base__campo' }, [el('dt', { text: k }), el('dd', { text: String(v) })]);
   }
 
+  /* A lista se redesenha por conta própria em vez de depender da recarga
+     dos painéis: se a recarga falhar, a tela não pode continuar mostrando
+     o estado anterior como se nada tivesse acontecido. */
   function agir(promessa, msgOk) {
     promessa
       .then(function () { return B().recarregarPaineis(); })
       .then(function () { MI.toast(msgOk, 'ok'); })
-      .catch(function (e) { MI.toast(e.message || String(e), 'error'); });
+      .catch(function (e) { MI.toast(e.message || String(e), 'error'); })
+      .then(function () { MI.app.rerender(); });
   }
 
   function renomear(d) {
@@ -155,10 +159,13 @@ window.MI = window.MI || {};
         B().excluir(d)
           .then(function (info) {
             m.close();
-            return B().recarregarPaineis().then(function () {
-              MI.toast('“' + d.name + '” excluída: ' + MI.fmt.int(info.removida_linhas || d.row_count || 0) +
-                ' registros e ' + MI.fmt.int(info.blocos || 0) + ' blocos removidos do servidor.', 'ok');
-            });
+            return B().recarregarPaineis()
+              .catch(function (e) { console.error('Recarga após exclusão:', e); })
+              .then(function () {
+                MI.toast('“' + d.name + '” excluída: ' + MI.fmt.int(info.removida_linhas || d.row_count || 0) +
+                  ' registros e ' + MI.fmt.int(info.blocos || 0) + ' blocos removidos do servidor.', 'ok');
+                MI.app.rerender();
+              });
           })
           .catch(function (e) { botao.disabled = false; MI.toast(e.message || String(e), 'error'); });
       }

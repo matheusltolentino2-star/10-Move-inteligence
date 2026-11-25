@@ -92,10 +92,12 @@ MI.views = MI.views || {};
   /* ================= Fontes de dados ================= */
   function renderDados(root) {
     const sub = [
+      { id: 'lote', label: 'Lote completo', icon: 'upload' },
       { id: 'clientes', label: 'Base de clientes', icon: 'users' },
       { id: 'transacoes', label: 'Base de transações', icon: 'spark' },
       { id: 'catalogo', label: 'Catálogo de produtos', icon: 'grid' },
-      { id: 'unidades', label: 'Unidades', icon: 'map' }
+      { id: 'unidades', label: 'Unidades', icon: 'map' },
+      { id: 'bases', label: 'Bases publicadas', icon: 'database' }
     ];
     root.appendChild(el('div', { style: 'display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px' }, sub.map(function (t) {
       return el('button', {
@@ -104,6 +106,17 @@ MI.views = MI.views || {};
       }, [el('span', { html: MI.icon(t.icon, 14) }), t.label]);
     })));
 
+    /* Gerenciar o que já está publicado vale mesmo com o lote ligado:
+       é justamente onde se desfaz uma importação que deu errado. */
+    if (S.fonte === 'bases') {
+      MI.basesUI.render(root, { tipos: ['clientes', 'transacoes'], titulo: 'Bases publicadas na plataforma' });
+      return;
+    }
+    if (S.fonte === 'lote') return MI.fullData.render(root);
+    if (MI.fullData?.active) {
+      root.appendChild(U.note('info', 'Para alterar fontes individuais, desative o lote completo nesta sessão.'));
+      return;
+    }
     if (S.fonte === 'unidades') { renderUnidades(root); return; }
 
     if (S.fonte === 'catalogo') {

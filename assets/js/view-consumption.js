@@ -8,7 +8,8 @@ MI.views = MI.views || {};
   'use strict';
   const el = MI.el, U = MI.ui, X = MI.txStats, T = MI.tx;
 
-  const S = { metrica: 'qtd', dimPerfil: '_faixa' };
+  const S = { metrica: 'qtd', dimPerfil: '_faixa', loja: '', periodo: 'mes', lote: null };
+  const PERIODOS = {semana:'Semana',mes:'Mês',trimestre:'Trimestre',estacao:'Estação'};
 
   MI.views.consumption = {
     title: 'Inteligência de Consumo',
@@ -19,9 +20,21 @@ MI.views = MI.views || {};
       /* ---------- sem base transacional ---------- */
       if (!T.has()) return semTransacoes(root);
 
-      const items = T.filtered();
+      const lote = MI.fullData?.active;
+      const loteId = lote?.id || null;
+      if (S.lote !== loteId) { S.lote = loteId; S.loja = ''; S.periodo = 'mes'; }
+      const filtered = T.filtered();
+      const items = S.loja ? filtered.filter(i=>i._unidade===S.loja) : filtered;
       const todos = T.items;
       const l = T.link;
+      if (lote && MI.fullData.canImport()) {
+        const select = el('select', {class:'input','aria-label':'Unidade das vendas'}, [
+          el('option',{value:'',selected:!S.loja},'Todas as lojas'),
+          ...lote.units.map(u=>el('option',{value:u.nome,selected:S.loja===u.nome},u.nome))
+        ]);
+        select.addEventListener('change',()=>{S.loja=select.value;MI.app.rerender();});
+        root.appendChild(U.section('Vendas por unidade','Lote nacional simulado', [select]));
+      }
 
       /* ---------- avisos de origem ---------- */
       if (T.isDemo()) {
@@ -60,6 +73,7 @@ MI.views = MI.views || {};
       const ped = X.porPedido(items);
       const totalQtd = MI.sum(items, function (i) { return i._qtd || 1; });
       const totalValor = MI.sum(items, function (i) { return i._valor || 0; });
+      const clientesNoRecorte = items === todos ? l.clientesDistintos : new Set(items.map(i=>i._cliente).filter(Boolean)).size;
 
       root.appendChild(U.guarded('cons.produtos', function () {
         return el('div', { class: 'grid' }, [
@@ -68,7 +82,7 @@ MI.views = MI.views || {};
           totalValor ? U.kpi({ span: 'c3', label: 'Receita no recorte', value: 'R$ ' + MI.fmt.compact(totalValor), icon: 'spark', hint: 'Soma do valor dos itens' }) : null,
           ped && ped.ticketMedio ? U.kpi({ span: 'c3', label: 'Ticket médio por pedido', value: MI.fmt.money(ped.ticketMedio), icon: 'spark', hint: 'Mediana ' + MI.fmt.money(ped.ticketMediana) + ' · P90 ' + MI.fmt.money(ped.ticketP90) }) : null,
           U.kpi({ span: 'c3', label: 'Produtos distintos vendidos', value: MI.fmt.int(X.topProdutos(items).distintos), icon: 'grid', hint: MI.fmt.pct(l.taxaProduto, 1) + ' casados com o catálogo' }),
-          l.clientesDistintos ? U.kpi({ span: 'c3', label: 'Clientes com compra', value: MI.fmt.compact(l.clientesDistintos), icon: 'users', hint: MI.store.dataset ? MI.fmt.pctOf(l.clientesDistintos, MI.store.dataset.rows.length, 1) + ' da base de clientes' : '' }) : null
+          clientesNoRecorte ? U.kpi({ span: 'c3', label: 'Clientes com compra', value: MI.fmt.compact(clientesNoRecorte), icon: 'users', hint: MI.store.dataset ? MI.fmt.pctOf(clientesNoRecorte, MI.store.dataset.rows.length, 1) + ' da base de clientes' : '' }) : null
         ].filter(Boolean));
       }));
 
@@ -337,9 +351,12 @@ MI.views = MI.views || {};
       }
 
       /* ---------- sazonalidade ---------- */
-      const mensal = X.mensal(items);
+      const mensal = X.porPeriodo(items, S.periodo);
       if (mensal && mensal.length > 2) {
-        root.appendChild(U.section('Evolução e sazonalidade', 'Volume e receita por mês'));
+        const selector = lote && MI.fullData.canImport() ? el('select',{class:'input','aria-label':'Período de consumo'},
+          Object.entries(PERIODOS).map(([id,label])=>el('option',{value:id,selected:S.periodo===id},label))) : null;
+        if (selector) selector.addEventListener('change',()=>{S.periodo=selector.value;MI.app.rerender();});
+        root.appendChild(U.section('Evolução e sazonalidade', 'Volume e receita por ' + PERIODOS[S.periodo].toLowerCase(), selector ? [selector] : null));
         root.appendChild(el('div', { class: 'grid' }, U.guarded('cons.produtos', function () {
           const t = MI.charts.theme();
           const series = [{ label: 'Quantidade vendida', values: mensal.map(function (m) { return m.qtd; }), color: t.series[0] }];
@@ -353,8 +370,8 @@ MI.views = MI.views || {};
             });
           });
           return U.card({
-            span: 'c12', title: 'Série mensal de consumo',
-            sub: mensal.length + ' meses presentes nas transações',
+            span: 'c12', title: S.periodo === 'mes' ? 'Série mensal de consumo' : 'Consumo por ' + PERIODOS[S.periodo].toLowerCase(),
+            sub: mensal.length + ' períodos na série',
             body: [el('div', { class: 'chart chart--lg' }, cv), U.legend(series.map(function (s) { return { color: s.color, label: s.label }; }))]
           });
         })));
@@ -437,6 +454,18 @@ MI.views = MI.views || {};
       /* ---------- leituras ---------- */
       root.appendChild(U.section('Leituras de consumo', 'Consumo observado, característica demográfica, hipótese e recomendação — sempre separados'));
       root.appendChild(el('div', { class: 'grid' }, leituras(items, l, ped, rec)));
+
+      /* A base que alimenta esta tela se gerencia aqui, não numa tela
+         distante: quem percebe que importou a planilha errada está olhando
+         justamente para os números errados. */
+      if (MI.basesUI && MI.bases && MI.bases.disponivel()) {
+        root.appendChild(U.section('Base de consumo', 'Ative, desative, renomeie ou exclua as bases publicadas'));
+        MI.basesUI.render(root, {
+          tipos: ['transacoes'],
+          titulo: 'Bases de consumo',
+          aoImportar: function () { MI.views.settings.abrirAba('dados', 'transacoes'); MI.app.go('settings'); }
+        });
+      }
     }
   };
 
@@ -658,6 +687,15 @@ MI.views = MI.views || {};
   /* ================= Estado sem transações ================= */
   function semTransacoes(root) {
     const podeGerar = MI.store.dataset && MI.store.dataset.source === 'demo' && MI.catalog.items.length;
+    /* Antes do convite a importar: se existe base publicada e inativa, o
+       caminho curto é reativá-la, não subir o arquivo de novo. */
+    if (MI.basesUI && MI.bases && MI.bases.disponivel()) {
+      MI.basesUI.render(root, {
+        tipos: ['transacoes'],
+        titulo: 'Bases de consumo',
+        aoImportar: function () { MI.views.settings.abrirAba('dados', 'transacoes'); MI.app.go('settings'); }
+      });
+    }
     root.appendChild(el('div', { class: 'grid' }, [
       U.card({
         span: 'c7', title: 'Nenhuma base de transações carregada',

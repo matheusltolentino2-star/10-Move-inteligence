@@ -114,7 +114,8 @@ window.MI = window.MI || {};
           roles: ds.roles,
           chunk_size: TAMANHO_BLOCO,
           chunk_count: Math.ceil(limpas.length / TAMANHO_BLOCO),
-          uploaded_by: MI.auth.user.id
+          uploaded_by: MI.auth.user.id,
+          uploaded_email: MI.auth.user.email || null
         }).select('id').limit(1);
       })
       .then(function (r) {
@@ -162,7 +163,8 @@ window.MI = window.MI || {};
           mapping: T.mapping || {},
           chunk_size: TAMANHO_BLOCO,
           chunk_count: Math.ceil(limpas.length / TAMANHO_BLOCO),
-          uploaded_by: MI.auth.user.id
+          uploaded_by: MI.auth.user.id,
+          uploaded_email: MI.auth.user.email || null
         }).select('id').limit(1);
       })
       .then(function (r) {
