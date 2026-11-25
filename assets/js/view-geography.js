@@ -34,6 +34,28 @@ MI.views = MI.views || {};
         const conc = S.concentration(rows, '_uf');
         const real = dUf.filter(function (e) { return !e.suppressed; });
 
+        /* O mapa é a interface de investigação: a profundidade territorial
+           sai do próprio filtro da plataforma, não de um estado paralelo.
+           Assim, descer para um estado no mapa é a mesma coisa que filtrar
+           por aquele estado, e todos os módulos acompanham sem precisar de
+           uma segunda camada de análise só para o mapa. */
+        const ufSelecionada = (function () {
+          const f = st.filters._uf;
+          if (!f || !f.values || f.values.size !== 1) return null;
+          return Array.from(f.values)[0];
+        })();
+        const cidadeSelecionada = (function () {
+          const f = st.filters._cidade;
+          if (!f || !f.values || f.values.size !== 1) return null;
+          return Array.from(f.values)[0];
+        })();
+
+        root.appendChild(trilha(ufSelecionada, cidadeSelecionada));
+
+        if (ufSelecionada && st.has('_cidade')) {
+          renderMunicipios(root, ufSelecionada, cidadeSelecionada, rows);
+        }
+
         root.appendChild(U.section('Unidades da federação', 'Clique em uma unidade no mapa para filtrar toda a plataforma'));
         root.appendChild(el('div', { class: 'grid' }, [
           U.guarded('geo.uf', function () {
@@ -215,6 +237,108 @@ MI.views = MI.views || {};
       root.appendChild(el('div', { class: 'grid' }, U.card({ span: 'c12', body: U.findings(leituras) })));
     }
   };
+
+  /* ================= Drill-down territorial =================
+     A malha municipal chega depois do render, que é síncrono. Este estado
+     guarda em que pé está o carregamento de cada UF para a tela poder dizer
+     "carregando", "falhou" ou desenhar — em vez de piscar vazia. */
+  const malha = { uf: null, estado: null, erro: null };
+
+  function trilha(uf, cidade) {
+    const st = MI.store;
+    const itens = [];
+    const crumb = function (texto, ativo, aoClicar) {
+      return el('button', {
+        class: 'trilha__item' + (ativo ? ' is-on' : ''), type: 'button',
+        onclick: ativo ? null : aoClicar
+      }, texto);
+    };
+    itens.push(crumb('Brasil', !uf, function () {
+      st.setFilter('_cidade', null);
+      st.setFilter('_uf', null);
+    }));
+    if (uf) {
+      itens.push(el('span', { class: 'trilha__sep', text: '›' }));
+      itens.push(crumb(MI.UF_NOMES[uf] || uf, !cidade, function () { st.setFilter('_cidade', null); }));
+    }
+    if (cidade) {
+      itens.push(el('span', { class: 'trilha__sep', text: '›' }));
+      itens.push(crumb(cidade, true, null));
+    }
+    return el('div', { class: 'trilha' }, itens);
+  }
+
+  function renderMunicipios(root, uf, cidade, rows) {
+    /* carregamento sob demanda: uma UF por vez, nunca o Brasil inteiro */
+    if (!MI.geo.temUf(uf)) {
+      if (malha.uf !== uf) {
+        malha.uf = uf; malha.estado = 'carregando'; malha.erro = null;
+        MI.geo.carregarUf(uf)
+          .then(function () { malha.estado = 'pronta'; MI.app.rerender(); })
+          .catch(function (e) { malha.estado = 'erro'; malha.erro = e.message; MI.app.rerender(); });
+      }
+      root.appendChild(U.section('Municípios de ' + (MI.UF_NOMES[uf] || uf), 'Malha oficial do IBGE, carregada sob demanda'));
+      root.appendChild(el('div', { class: 'grid' }, U.card({
+        span: 'c12',
+        body: malha.estado === 'erro'
+          ? U.note('crit', [el('strong', { text: 'A malha municipal não carregou. ' }), malha.erro || ''])
+          : U.empty('Carregando os municípios de ' + (MI.UF_NOMES[uf] || uf) + '…')
+      })));
+      return;
+    }
+
+    const dCid = MI.privacy.guardDist(S.dist(rows, '_cidade', {}));
+    const r = MI.geo.mapaUf(uf, dCid, {
+      selected: cidade ? [cidade] : [],
+      onSelect: function (nome) { MI.app.toggleCatValue('_cidade', nome); }
+    });
+    if (!r || !r.node) return;
+
+    root.appendChild(U.section('Municípios de ' + (MI.UF_NOMES[uf] || uf),
+      'Clique em um município para aprofundar o recorte em toda a plataforma'));
+    root.appendChild(el('div', { class: 'grid' }, [
+      U.guarded('geo.uf', function () {
+        return U.card({
+          span: 'c7', title: 'Mapa de ' + (MI.UF_NOMES[uf] || uf),
+          sub: MI.fmt.int(r.comRegistros) + ' de ' + MI.fmt.int(r.municipios) + ' municípios têm registros no recorte',
+          body: r.node,
+          foot: 'Malha oficial do IBGE em projeção cônica equivalente. Os nomes das cidades da planilha são ' +
+            'casados com os municípios por nome normalizado e correspondência exata — nome parecido não é ' +
+            'casado em silêncio.'
+        });
+      }),
+      U.card({
+        span: 'c5', title: 'O que entrou no mapa',
+        sub: 'Toda linha que não vira posição no mapa precisa aparecer em algum lugar',
+        body: [
+          /* O denominador é o recorte inteiro, não só o que sobrou da
+             supressão: dizer "100% de cobertura" escondendo os grupos
+             suprimidos seria contar o que falta como se não existisse. */
+          U.statline([
+            { k: 'Registros no mapa', v: MI.fmt.int(r.localizados) },
+            { k: 'Cobertura do recorte', v: rows.length ? MI.fmt.pct(r.localizados / rows.length, 1) : '—' },
+            { k: 'Suprimidos por k', v: MI.fmt.int(dCid.suppressedCount || 0) },
+            { k: 'Sem cidade preenchida', v: MI.fmt.int(dCid.missing || 0) },
+            { k: 'Nomes não localizados', v: MI.fmt.int(r.naoLocalizados.length) }
+          ]),
+          r.naoLocalizados.length
+            ? el('div', { style: 'margin-top:14px' }, [
+              U.note('warn', [
+                el('strong', { text: 'Cidades que não batem com nenhum município de ' + uf + '. ' }),
+                'Podem ser grafias diferentes, cidade de outro estado no campo errado, ou distrito em vez de município. ' +
+                'Elas continuam nos números da plataforma; só não aparecem no mapa.'
+              ]),
+              el('div', { style: 'margin-top:10px' }, U.table(
+                [{ label: 'Nome na planilha' }, { label: 'Registros', num: true }],
+                r.naoLocalizados.slice(0, 12).map(function (e) {
+                  return { cells: [{ v: e.label }, { v: MI.fmt.int(e.value), num: true }] };
+                })))
+            ])
+            : el('div', { style: 'margin-top:14px' }, U.note('ok', 'Todos os nomes de cidade do recorte foram localizados na malha do IBGE.'))
+        ]
+      })
+    ]));
+  }
 
   /* UF predominante de cada cidade, em uma passagem só (há homônimos entre estados) */
   function mapaCidadeUf(rows) {
