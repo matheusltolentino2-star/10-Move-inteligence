@@ -66,6 +66,15 @@ window.MI = window.MI || {};
   };
 
   /* ================= Normalização ================= */
+  T.criarItem = function (pedido, cliente, sku, nome, tamanho, categoria, data, mes, dow, hora, qtd, unitario, valor, canal, unidade) {
+    return {
+      _pedido:pedido, _cliente:cliente, _sku:sku, _nome:nome, _tamanho:tamanho, _catBruta:categoria,
+      _data:data, _mes:mes, _dow:dow, _hora:hora, _qtd:qtd, _valorUnit:unitario, _valor:valor,
+      _canal:canal, _unidade:unidade,
+      _prod:null, _cat:null, _subcat:null, _metodo:null, _faixa:null, _genero:null, _uf:null, _cidade:null, _idade:null
+    };
+  };
+
   function normalizar(rows, mapping) {
     const g = function (r, campo) {
       const h = mapping[campo];
@@ -99,22 +108,12 @@ window.MI = window.MI || {};
       let vTotal = g(r, 'valorTotal') != null ? MI.parseNumber(g(r, 'valorTotal')) : null;
       if (vTotal == null && vUnit != null && qtd != null) vTotal = vUnit * qtd;
 
-      out[n++] = {
-        _pedido: g(r, 'idPedido') != null ? String(g(r, 'idPedido')) : null,
-        _cliente: g(r, 'idCliente') != null ? String(g(r, 'idCliente')) : null,
-        _sku: sku != null ? String(sku) : null,
-        _nome: nome != null ? String(nome).trim() : null,
-        _tamanho: g(r, 'tamanho') != null ? String(g(r, 'tamanho')).trim() : null,
-        _catBruta: g(r, 'categoria') != null ? String(g(r, 'categoria')).trim() : null,
-        _data: d, _mes: d ? MI.monthKey(d) : null, _dow: d ? d.getDay() : null, _hora: hora,
-        _qtd: qtd != null && qtd > 0 ? qtd : 1,
-        _valorUnit: vUnit, _valor: vTotal,
-        _canal: g(r, 'canal') != null ? String(g(r, 'canal')).trim() : null,
-        _unidade: g(r, 'unidade') != null ? String(g(r, 'unidade')).trim() : null,
-        /* preenchidos na ligação */
-        _prod: null, _cat: null, _subcat: null, _metodo: null,
-        _faixa: null, _genero: null, _uf: null, _cidade: null, _idade: null
-      };
+      const clean = key => g(r, key) == null ? null : String(g(r, key)).trim();
+      out[n++] = T.criarItem(g(r, 'idPedido') == null ? null : String(g(r, 'idPedido')),
+        g(r, 'idCliente') == null ? null : String(g(r, 'idCliente')), sku == null ? null : String(sku),
+        nome == null ? null : String(nome).trim(), clean('tamanho'), clean('categoria'),
+        d, d ? MI.monthKey(d) : null, d ? d.getDay() : null, hora, qtd != null && qtd > 0 ? qtd : 1,
+        vUnit, vTotal, clean('canal'), clean('unidade'));
     }
     out.length = n;
     return out;
@@ -230,7 +229,7 @@ window.MI = window.MI || {};
        o casamento é refeito. Transações demonstrativas ficam de fora: elas
        são fictícias e contaminariam o cardápio real com nomes inventados. */
     T.ultimaAbsorcao = null;
-    if (T.autoCatalogar && source !== 'demo' && MI.catalog && MI.catalog.absorver) {
+    if (T.autoCatalogar && source !== 'demo' && source !== 'lote-sintetico' && MI.catalog && MI.catalog.absorver) {
       try {
         const r = MI.catalog.absorver(T.items);
         if (r.criados) { T.ultimaAbsorcao = r; T.relink(); }

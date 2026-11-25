@@ -1,28 +1,38 @@
-/* 10 Move Intelligence — workspace de inteligência geográfica
+/* 10 Move Intelligence — workspace de exploração territorial (Leaflet)
    -------------------------------------------------------------------------
-   POR QUE CONTINUA SVG
+   POR QUE DEIXOU DE SER SVG
 
-   Avaliei trocar por MapLibre GL, Deck.gl ou Leaflet antes de refatorar. A
-   carga de trabalho aqui é um coroplético sobre geometria fixa e pequena:
-   27 UFs no nível nacional, no máximo 853 polígonos num estado, tudo já
-   projetado em build. Não há tiles, não há basemap, não há dado em tempo
-   real, não há milhões de feições.
+   A versão anterior desenhava polígonos projetados em build dentro de um
+   <svg> com transform. Aquilo dava conta de um coroplético, mas não do que
+   o produto passou a exigir:
 
-   Trocar custaria: 200 KB a 900 KB de biblioteca, uma fonte de dados em
-   GeoJSON não projetado, mudanças na CSP e, principalmente, a quebra da
-   arquitetura sem build do projeto. O que elas dariam de volta — zoom, pan,
-   rótulos que não escalam — é o que este arquivo implementa com transform
-   de SVG, que o navegador acelera por GPU do mesmo jeito.
+     · contexto urbano no nível da cidade — ruas, avenidas, parques. Não há
+       como desenhar isso a partir de malha administrativa;
+     · raio de cobertura em metros reais. Em SVG era conversão aproximada
+       feita na mão, válida só perto dos paralelos padrão;
+     · seleção confiável. O handler lia ev.target.closest('[data-id]'), e o
+       setPointerCapture usado no arraste fazia o clique derivado chegar com
+       o <svg> como alvo: closest devolvia null e o clique morria. Era esse
+       o motivo de os estados "não obedecerem".
 
-   A conta muda se entrarem basemap, setores censitários do país inteiro ou
-   pontos em volume. Aí MapLibre passa a valer, e a geometria em código IBGE
-   continua servindo.
+   Leaflet resolve os três de origem — tiles de basemap, L.circle em metros
+   e hit-testing próprio por feição. São 147 KB do cdnjs, que a CSP já
+   permitia para script.
 
-   COMO O ZOOM FUNCIONA
+   BASEMAP E LICENÇA
 
-   As geometrias ficam num <g> com transform; os rótulos ficam FORA dele,
-   posicionados em coordenadas de tela. Assim o texto não estica junto com o
-   mapa — que é o que separa mapa profissional de SVG esticado.
+   Tiles CARTO Positron sobre dados do OpenStreetMap, sem chave e com
+   atribuição obrigatória, exibida no mapa. O cinza claro é deliberado:
+   deixa a cor do dado dominar em vez de competir com ela. Para uso
+   comercial intenso o correto é contratar um provedor; a URL fica em
+   MI.MAPA_TILES para trocar sem tocar no código.
+
+   O basemap só liga no nível municipal. Nos níveis Brasil e estado ele não
+   acrescenta nada e atrapalha a leitura do coroplético.
+
+   O MAPA NÃO É RECRIADO A CADA RENDER. Recriar perderia o zoom, piscaria a
+   tela e recarregaria tiles à toa — e foi justamente o que fazia as camadas
+   ligadas voltarem ao padrão a cada clique.
    ------------------------------------------------------------------------- */
 window.MI = window.MI || {};
 
@@ -30,67 +40,92 @@ window.MI = window.MI || {};
   'use strict';
 
   const el = MI.el;
-  const NS = 'http://www.w3.org/2000/svg';
   const W = {};
 
-  /* Preferências de leitura sobrevivem ao re-render. Cada seleção no mapa
-     refaz o componente, e sem isto a camada de unidades e a métrica
-     escolhida voltavam ao padrão a cada clique — o usuário ligava o raio,
-     clicava num município e o raio sumia. */
-  const PREF = { verUnidades: true, verRaios: false, metrica: 'clientes' };
+  const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
+  const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
 
-  function svgEl(nome, attrs) {
-    const n = document.createElementNS(NS, nome);
-    if (attrs) Object.keys(attrs).forEach(function (k) {
-      if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+  /* OpenStreetMap padrão: gratuito, sem chave, atribuição obrigatória — que
+     o mapa exibe. A primeira escolha foi o CARTO Positron, cinza e mais
+     elegante, mas hoje ele devolve uma tile de aviso de 2 KB sem chave de
+     API em vez do mapa; trocar foi questão de verificar o que chega, não de
+     preferência estética.
+
+     A política de uso de tiles da OSMF admite volume modesto e pede
+     identificação do cliente. Operação comercial intensa exige provedor
+     contratado ou servidor próprio — e aí basta trocar esta URL. */
+  MI.MAPA_TILES = MI.MAPA_TILES || {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    atribuicao: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+    subdominios: undefined
+  };
+
+  const BRASIL = [[-33.9, -74.0], [5.3, -34.0]];
+
+  /* Preferências de leitura, fora do ciclo de render. */
+  const PREF = { metrica: 'clientes', unidades: true, cobertura: false, coropletico: true };
+
+  const M = {
+    pronto: false, mapa: null, raiz: null, ctx: null,
+    camadaTiles: null, territorio: null, cobertura: null, unidades: null,
+    porChave: null, geo: null
+  };
+
+  let cacheCss = {};
+  function css(nome) {
+    if (cacheCss[nome]) return cacheCss[nome];
+    const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+    cacheCss[nome] = v || '#888';
+    return cacheCss[nome];
+  }
+  W.esquecerCores = function () { cacheCss = {}; };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /* ---------------- Biblioteca ---------------- */
+  let carregandoLib = null;
+  W.carregarLib = function () {
+    if (window.L && window.L.map) return Promise.resolve(window.L);
+    if (carregandoLib) return carregandoLib;
+    carregandoLib = new Promise(function (resolve, reject) {
+      const css2 = document.createElement('link');
+      css2.rel = 'stylesheet'; css2.href = LEAFLET_CSS;
+      document.head.appendChild(css2);
+      const s = document.createElement('script');
+      s.src = LEAFLET_JS;
+      s.onload = function () { resolve(window.L); };
+      s.onerror = function () { reject(new Error('Não foi possível carregar a biblioteca de mapas.')); };
+      document.head.appendChild(s);
     });
-    return n;
-  }
+    return carregandoLib;
+  };
 
-  /* Caixa envolvente lida do próprio caminho. Guardada no objeto da feição
-     porque o cálculo se repete a cada mudança de zoom. */
-  function caixa(d) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const re = /(-?\d+(?:\.\d+)?)[ ,](-?\d+(?:\.\d+)?)/g;
-    let m;
-    while ((m = re.exec(d))) {
-      const x = +m[1], y = +m[2];
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
-    return [minX, minY, maxX, maxY];
-  }
-
-  /* ---------------- Métricas ---------------- */
-
-  function metricasDisponiveis() {
+  /* ---------------- Métricas e agregação ---------------- */
+  function metricas() {
     const st = MI.store;
     const m = [{
       id: 'clientes', rotulo: 'Clientes', unidade: 'registros',
-      valor: function (a) { return a.n; },
-      fmt: function (v) { return MI.fmt.int(v); }
+      valor: function (a) { return a.n; }, fmt: function (v) { return MI.fmt.int(v); }
     }];
     if (st.has('_receita')) m.push({
-      id: 'receita', rotulo: 'Receita acumulada', unidade: 'R$',
-      valor: function (a) { return a.receita; },
-      fmt: function (v) { return MI.fmt.money(v); }
+      id: 'receita', rotulo: 'Receita', unidade: 'R$ acumulados',
+      valor: function (a) { return a.receita; }, fmt: function (v) { return MI.fmt.money(v); }
     });
     if (st.has('_valor')) m.push({
       id: 'ticket', rotulo: 'Ticket médio', unidade: 'R$ por cliente',
-      valor: function (a) { return a.comValor ? a.valor / a.comValor : 0; },
-      fmt: function (v) { return MI.fmt.money(v); }
+      valor: function (a) { return a.comValor ? a.valor / a.comValor : 0; }, fmt: function (v) { return MI.fmt.money(v); }
     });
     return m;
   }
 
-  /* Agrega o recorte por território e aplica a supressão de grupos pequenos.
-     Suprimido não é o mesmo que sem registro: um some por proteção, o outro
+  /* Suprimido não é o mesmo que sem registro: um some por proteção, o outro
      por ausência, e o mapa precisa distinguir os dois. */
   function agregar(rows, campo) {
-    const k = MI.privacy.k;
-    const mascarar = MI.privacy.masking();
+    const k = MI.privacy.k, mascarar = MI.privacy.masking();
     const m = new Map();
     for (let i = 0; i < rows.length; i++) {
       const v = rows[i][campo];
@@ -103,695 +138,415 @@ window.MI = window.MI || {};
       const val = rows[i]._valor;
       if (typeof val === 'number' && isFinite(val)) { o.valor += val; o.comValor++; }
     }
-    let suprimidos = 0, gruposSuprimidos = 0;
+    let suprimidos = 0, grupos = 0;
     m.forEach(function (o) {
       o.suprimido = mascarar && o.n < k;
-      if (o.suprimido) { suprimidos += o.n; gruposSuprimidos++; }
+      if (o.suprimido) { suprimidos += o.n; grupos++; }
     });
-    return { por: m, k: k, suprimidos: suprimidos, gruposSuprimidos: gruposSuprimidos };
+    return { por: m, k: k, suprimidos: suprimidos, gruposSuprimidos: grupos };
   }
 
-  /* ---------------- Workspace ---------------- */
-
-  /* opts:
-       nivel 'brasil' | 'uf', uf, rows, campo, selecionado,
-       crumbs [{rotulo, aoClicar}], onSelect(nome), aoAprofundar(nome)   */
-  W.workspace = function (opts) {
-    const nivel = opts.nivel;
-    const fonteGeo = nivel === 'uf' ? MI.GEO_MUN[opts.uf] : MI.BR_MAPA;
-    if (!fonteGeo) return el('p', { class: 'field__hint', text: 'Geometria indisponível.' });
-
-    /* feições normalizadas: o nível nacional guarda por sigla, o estadual
-       por código do IBGE, e o resto do componente não precisa saber disso */
-    const feicoes = [];
-    if (nivel === 'uf') {
-      Object.keys(fonteGeo.municipios).forEach(function (cod) {
-        const m = fonteGeo.municipios[cod];
-        if (!m._cx) m._cx = caixa(m.d);
-        feicoes.push({ id: cod, nome: m.n, chave: m.n, d: m.d, c: m.c, cx: m._cx });
-      });
-    } else {
-      fonteGeo._cx = fonteGeo._cx || {};
-      Object.keys(fonteGeo.caminhos).forEach(function (uf) {
-        if (!fonteGeo._cx[uf]) fonteGeo._cx[uf] = caixa(fonteGeo.caminhos[uf]);
-        feicoes.push({
-          id: uf, nome: MI.UF_NOMES[uf] || uf, chave: uf,
-          d: fonteGeo.caminhos[uf], c: fonteGeo.centros[uf], cx: fonteGeo._cx[uf]
-        });
-      });
-    }
-
-    const ag = agregar(opts.rows, opts.campo);
-    const metricas = metricasDisponiveis();
-    const metricaSalva = metricas.filter(function (m) { return m.id === PREF.metrica; })[0];
-    const S = {
-      k: 1, tx: 0, ty: 0,
-      metrica: metricaSalva || metricas[0],
-      hover: null,
-      /* O painel abre por padrão na tela larga: ocupa com conteúdo útil a
-         faixa que sobraria ao lado de um mapa quase quadrado, e é por ele
-         que se chega aos territórios pequenos demais para acertar com o
-         cursor. No celular ele empilha embaixo e empurraria o mapa para
-         fora da tela, então começa fechado. */
-      painel: window.innerWidth >= 900,
-      largura: fonteGeo.largura,
-      altura: fonteGeo.altura
-    };
-
-    /* valores por feição, já sob a métrica escolhida */
-    function recalcular() {
-      let max = 0;
-      feicoes.forEach(function (f) {
-        const a = ag.por.get(f.chave);
-        f.ag = a || null;
-        f.suprimido = !!(a && a.suprimido);
-        f.v = a && !a.suprimido ? S.metrica.valor(a) : 0;
-        if (f.v > max) max = f.v;
-      });
-      S.max = max;
-    }
-    recalcular();
-
-    /* ---------- estrutura ---------- */
+  /* ---------------- Esqueleto ---------------- */
+  function montar() {
     const raiz = el('div', { class: 'geo' });
+    const mapaEl = el('div', { class: 'geo__mapa' });
+    const palco = el('div', { class: 'geo__palco' }, mapaEl);
+    const legenda = el('div', { class: 'geo__legenda' });
+    palco.appendChild(legenda);
 
-    const svg = svgEl('svg', {
-      class: 'geo__svg',
-      viewBox: '0 0 ' + S.largura + ' ' + S.altura,
-      preserveAspectRatio: 'xMidYMid meet',
-      role: 'img',
-      'aria-label': nivel === 'uf'
-        ? 'Mapa de municípios de ' + (MI.UF_NOMES[opts.uf] || opts.uf)
-        : 'Mapa do Brasil por unidade da federação'
+    const trilha = el('nav', { class: 'geo__trilha', 'aria-label': 'Nível territorial' });
+    const busca = el('input', { class: 'geo__busca', type: 'search', placeholder: 'Buscar lugar…', 'aria-label': 'Buscar no mapa' });
+    const sugestoes = el('div', { class: 'geo__sugestoes', hidden: true });
+    const seletor = el('select', { class: 'geo__metrica', 'aria-label': 'Métrica representada' });
+    const camadas = el('div', { class: 'geo__camadas' });
+    const barra = el('header', { class: 'geo__barra' }, [
+      trilha,
+      el('div', { class: 'geo__barra-dir' }, [camadas, el('div', { class: 'geo__campo' }, [busca, sugestoes]), seletor])
+    ]);
+
+    const painel = el('aside', { class: 'geo__painel' });
+    raiz.appendChild(barra);
+    raiz.appendChild(el('div', { class: 'geo__corpo' }, [palco, painel]));
+
+    Object.assign(M, { raiz: raiz, mapaEl: mapaEl, palco: palco, legenda: legenda, trilha: trilha, busca: busca, sugestoes: sugestoes, seletor: seletor, camadasEl: camadas, painel: painel });
+
+    seletor.addEventListener('change', function () {
+      PREF.metrica = seletor.value;
+      if (M.ctx) W.aplicar(M.ctx);
     });
-    const camada = svgEl('g', { class: 'geo__camada' });
-    const camadaUnidades = svgEl('g', { class: 'geo__unidades' });
-    const camadaRotulos = svgEl('g', { class: 'geo__rotulos' });
-    svg.appendChild(camada);
-    camada.appendChild(camadaUnidades);
-    svg.appendChild(camadaRotulos);
+    busca.addEventListener('input', function () { buscar(); });
+    busca.addEventListener('blur', function () { setTimeout(function () { sugestoes.hidden = true; }, 160); });
+    return raiz;
+  }
 
-    const porId = {};
-    feicoes.forEach(function (f) {
-      const p = svgEl('path', { d: f.d, 'data-id': f.id, class: 'geo__f' });
-      p.setAttribute('aria-label', f.nome);
-      camada.appendChild(p);
-      porId[f.id] = p;
-      f.el = p;
+  function criarMapa(L) {
+    const mapa = L.map(M.mapaEl, {
+      zoomControl: false, attributionControl: true, preferCanvas: true,
+      zoomSnap: 0.25, minZoom: 3, maxZoom: 18, worldCopyJump: false
     });
+    mapa.attributionControl.setPrefix('');
+    L.control.zoom({ position: 'topright', zoomInTitle: 'Aproximar', zoomOutTitle: 'Afastar' }).addTo(mapa);
+    L.control.scale({ position: 'bottomright', imperial: false }).addTo(mapa);
 
-    const dica = el('div', { class: 'geo__tip', hidden: true });
-    const palco = el('div', { class: 'geo__palco' }, [dica]);
-    palco.insertBefore(svg, dica);
+    /* ordem explícita: território embaixo, cobertura no meio, loja por cima */
+    mapa.createPane('territorio').style.zIndex = 400;
+    mapa.createPane('cobertura').style.zIndex = 450;
+    mapa.createPane('unidades').style.zIndex = 600;
 
-    /* ---------- pintura ---------- */
-    function pintar() {
-      feicoes.forEach(function (f) {
-        const sel = opts.selecionado && f.chave === opts.selecionado;
-        let cls = 'geo__f';
-        if (!f.ag) cls += ' is-sem';
-        else if (f.suprimido) cls += ' is-sup';
-        if (sel) cls += ' is-sel';
-        if (S.hover === f.id) cls += ' is-hover';
-        f.el.setAttribute('class', cls);
-        f.el.setAttribute('fill', f.ag && !f.suprimido && S.max
-          ? MI.geo.scale(0.14 + (f.v / S.max) * 0.86)
-          : 'var(--geo-vazio)');
-        if (f.ag && !f.suprimido) {
-          f.el.setAttribute('role', 'button');
-          f.el.setAttribute('tabindex', '0');
-        } else {
-          f.el.removeAttribute('role');
-          f.el.removeAttribute('tabindex');
-        }
-      });
+    M.territorio = L.layerGroup([], { pane: 'territorio' }).addTo(mapa);
+    M.cobertura = L.layerGroup([], { pane: 'cobertura' }).addTo(mapa);
+    M.unidades = L.layerGroup([], { pane: 'unidades' }).addTo(mapa);
+    M.mapa = mapa;
+    M.pronto = true;
+    return mapa;
+  }
+
+  function basemap(ligar) {
+    const L = window.L;
+    if (ligar && !M.camadaTiles) {
+      M.camadaTiles = L.tileLayer(MI.MAPA_TILES.url, {
+        attribution: MI.MAPA_TILES.atribuicao, maxZoom: MI.MAPA_TILES.maxZoom,
+        subdomains: MI.MAPA_TILES.subdominios || 'abc'
+      }).addTo(M.mapa);
+      M.camadaTiles.bringToBack();
+    } else if (!ligar && M.camadaTiles) {
+      M.mapa.removeLayer(M.camadaTiles);
+      M.camadaTiles = null;
     }
+  }
 
-    /* ---------- zoom e deslocamento ---------- */
-    function aplicar() {
-      camada.setAttribute('transform', 'translate(' + S.tx + ' ' + S.ty + ') scale(' + S.k + ')');
-      redimensionarMarcas();
-      agendarRotulos();
-      botaoReset.disabled = S.k === 1 && S.tx === 0 && S.ty === 0;
-    }
-
-    function limitar() {
-      /* não deixa o mapa sair de vista: no mínimo um quarto dele continua
-         dentro do palco, em qualquer direção */
-      const margem = 0.75;
-      const maxTx = S.largura * margem;
-      const minTx = -S.largura * S.k + S.largura * (1 - margem);
-      const maxTy = S.altura * margem;
-      const minTy = -S.altura * S.k + S.altura * (1 - margem);
-      S.tx = Math.min(maxTx, Math.max(minTx, S.tx));
-      S.ty = Math.min(maxTy, Math.max(minTy, S.ty));
-    }
-
-    function zoomPara(k, cx, cy) {
-      const novo = Math.min(28, Math.max(1, k));
-      const f = novo / S.k;
-      S.tx = cx - (cx - S.tx) * f;
-      S.ty = cy - (cy - S.ty) * f;
-      S.k = novo;
-      limitar();
-      aplicar();
-    }
-
-    /* converte ponto de tela para o sistema do viewBox */
-    function paraViewBox(ev) {
-      const r = svg.getBoundingClientRect();
-      const escalaTela = Math.min(r.width / S.largura, r.height / S.altura);
-      const offX = (r.width - S.largura * escalaTela) / 2;
-      const offY = (r.height - S.altura * escalaTela) / 2;
-      return [(ev.clientX - r.left - offX) / escalaTela, (ev.clientY - r.top - offY) / escalaTela];
-    }
-
-    svg.addEventListener('wheel', function (ev) {
-      ev.preventDefault();
-      const p = paraViewBox(ev);
-      zoomPara(S.k * (ev.deltaY < 0 ? 1.18 : 1 / 1.18), p[0], p[1]);
-    }, { passive: false });
-
-    let arrastando = null;
-    svg.addEventListener('pointerdown', function (ev) {
-      if (ev.button !== 0) return;
-      arrastando = { x: ev.clientX, y: ev.clientY, tx: S.tx, ty: S.ty, moveu: false };
-      svg.setPointerCapture(ev.pointerId);
-    });
-    svg.addEventListener('pointermove', function (ev) {
-      if (!arrastando) return;
-      const r = svg.getBoundingClientRect();
-      const escalaTela = Math.min(r.width / S.largura, r.height / S.altura);
-      const dx = (ev.clientX - arrastando.x) / escalaTela;
-      const dy = (ev.clientY - arrastando.y) / escalaTela;
-      if (Math.abs(dx) + Math.abs(dy) > 3) arrastando.moveu = true;
-      S.tx = arrastando.tx + dx;
-      S.ty = arrastando.ty + dy;
-      limitar();
-      aplicar();
-      raiz.classList.add('is-arrastando');
-    });
-    const soltar = function (ev) {
-      if (!arrastando) return;
-      const moveu = arrastando.moveu;
-      arrastando = null;
-      raiz.classList.remove('is-arrastando');
-      try { svg.releasePointerCapture(ev.pointerId); } catch (e) { }
-      svg._ignorarClique = moveu;
+  /* ---------------- Território ---------------- */
+  function estilo(f, ctx, destaque) {
+    const sel = ctx.selecionado && ctx.chave(f) === ctx.selecionado;
+    const a = f._ag, semDado = !a, sup = a && a.suprimido;
+    let fill;
+    if (!PREF.coropletico || semDado) fill = css('--geo-vazio');
+    else if (sup) fill = css('--geo-sup');
+    else fill = MI.geo.scale(ctx.max ? 0.14 + (f._v / ctx.max) * 0.86 : 0.14);
+    return {
+      color: sel ? css('--accent-strong') : (destaque ? css('--text') : css('--surface')),
+      weight: sel ? 3 : (destaque ? 2.2 : 0.7),
+      opacity: 1,
+      fillColor: fill,
+      fillOpacity: ctx.nivel === 'municipio' ? 0.12 : (semDado ? 0.5 : 0.85)
     };
-    svg.addEventListener('pointerup', soltar);
-    svg.addEventListener('pointercancel', soltar);
+  }
 
-    /* Enquadra uma feição com folga, animado: pular direto confunde sobre
-       onde se está no território. */
-    function enquadrar(f, animar) {
-      const larg = Math.max(1, f.cx[2] - f.cx[0]);
-      const alt = Math.max(1, f.cx[3] - f.cx[1]);
-      const alvoK = Math.min(16, Math.max(1, 0.7 * Math.min(S.largura / larg, S.altura / alt)));
-      const cx = (f.cx[0] + f.cx[2]) / 2, cy = (f.cx[1] + f.cx[3]) / 2;
-      const alvoTx = S.largura / 2 - cx * alvoK;
-      const alvoTy = S.altura / 2 - cy * alvoK;
-      if (!animar) { S.k = alvoK; S.tx = alvoTx; S.ty = alvoTy; limitar(); aplicar(); return; }
-      const k0 = S.k, tx0 = S.tx, ty0 = S.ty, t0 = performance.now();
-      const passo = function (t) {
-        const p = Math.min(1, (t - t0) / 420);
-        const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
-        S.k = k0 + (alvoK - k0) * e;
-        S.tx = tx0 + (alvoTx - tx0) * e;
-        S.ty = ty0 + (alvoTy - ty0) * e;
-        aplicar();
-        if (p < 1) requestAnimationFrame(passo);
-      };
-      requestAnimationFrame(passo);
+  function dica(f, ctx) {
+    const a = f._ag;
+    const l = ['<strong>' + esc(f.properties.nome) + '</strong>'];
+    if (!a) l.push('<span>Sem registros no recorte</span>');
+    else if (a.suprimido) l.push('<span>Suprimido: menos de ' + ctx.ag.k + ' registros</span>');
+    else {
+      l.push('<span>' + MI.fmt.int(a.n) + ' clientes · ' + MI.fmt.pctOf(a.n, ctx.total, 1) + ' do recorte</span>');
+      if (MI.store.has('_receita')) l.push('<span>Receita ' + MI.fmt.money(a.receita) + '</span>');
+      if (a.comValor) l.push('<span>Ticket ' + MI.fmt.money(a.valor / a.comValor) + '</span>');
     }
+    const n = ctx.unidadesPorChave[ctx.chave(f)];
+    if (n) l.push('<span class="geo-dica__u">' + n + (n === 1 ? ' unidade Smoov' : ' unidades Smoov') + '</span>');
+    return l.join('');
+  }
 
-    /* ---------- rótulos ----------
-       Ficam fora da camada transformada: o texto mantém o tamanho em
-       qualquer zoom. Entram em ordem de relevância e só quando cabem dentro
-       do próprio polígono na tela; o que não cabe fica para a dica e para o
-       painel, nunca por cima da geometria. */
-    let pendente = null;
-    function agendarRotulos() {
-      if (pendente) cancelAnimationFrame(pendente);
-      pendente = requestAnimationFrame(function () { pendente = null; desenharRotulos(); });
+  function desenharTerritorio(ctx) {
+    const L = window.L;
+    M.territorio.clearLayers();
+    M.porChave = {};
+    if (!ctx.feicoes) return;
+
+    let max = 0;
+    ctx.feicoes.features.forEach(function (f) {
+      const a = ctx.ag.por.get(ctx.chave(f));
+      f._ag = a || null;
+      f._v = a && !a.suprimido ? ctx.metrica.valor(a) : 0;
+      if (f._v > max) max = f._v;
+    });
+    ctx.max = max;
+
+    const camada = L.geoJSON(ctx.feicoes, {
+      pane: 'territorio',
+      style: function (f) { return estilo(f, ctx, false); },
+      onEachFeature: function (f, layer) {
+        const chave = ctx.chave(f);
+        M.porChave[chave] = layer;
+        layer.bindTooltip(function () { return dica(f, ctx); },
+          { sticky: true, direction: 'top', opacity: 1, className: 'geo-dica' });
+        layer.on('mouseover', function () { layer.setStyle(estilo(f, ctx, true)); });
+        layer.on('mouseout', function () { layer.setStyle(estilo(f, ctx, false)); });
+        /* Seleciona sempre, inclusive sem registro: ausência de dado não
+           pode impedir a navegação territorial. */
+        layer.on('click', function (ev) {
+          if (ev.originalEvent) L.DomEvent.stop(ev.originalEvent);
+          if (ctx.aoSelecionar) ctx.aoSelecionar(chave, f);
+        });
+      }
+    });
+    M.territorio.addLayer(camada);
+    M.geo = camada;
+  }
+
+  /* ---------------- Unidades e cobertura ---------------- */
+  function corFormato(f) {
+    return css(f === 'propria' ? '--c5' : f === 'franquia' ? '--c6' : '--muted');
+  }
+
+  function centro(f) {
+    const c = f.properties.caixa;
+    return [(c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2];
+  }
+
+  function posicao(u) {
+    if (u.precisao === 'exata' && u.lat != null && u.lng != null) return [u.lat, u.lng];
+    if (!u.municipio || !u.uf) return null;
+    const f = MI.geo.temUf(u.uf) ? MI.geo.municipioPorNome(u.uf, u.municipio) : null;
+    if (f) return centro(f);
+    if (MI.GEO_BR) {
+      const uf = MI.GEO_BR.features.filter(function (x) { return x.properties.uf === u.uf; })[0];
+      if (uf) return centro(uf);
     }
+    return null;
+  }
+  W.posicaoDaUnidade = posicao;
 
-    function desenharRotulos() {
-      while (camadaRotulos.firstChild) camadaRotulos.removeChild(camadaRotulos.firstChild);
-      const candidatos = feicoes.filter(function (f) { return f.ag && !f.suprimido; })
-        .sort(function (a, b) { return b.v - a.v; });
-      const selecionada = feicoes.filter(function (f) {
-        return opts.selecionado && f.chave === opts.selecionado;
-      })[0];
-      if (selecionada && candidatos.indexOf(selecionada) > 0) {
-        candidatos.splice(candidatos.indexOf(selecionada), 1);
-        candidatos.unshift(selecionada);
+  function unidadesVisiveis(ctx) {
+    if (!MI.unidades) return [];
+    return MI.unidades.items.filter(function (u) {
+      if (u.precisao === 'ausente') return false;
+      if (ctx.nivel === 'uf' && u.uf !== ctx.uf) return false;
+      if (ctx.nivel === 'municipio') {
+        if (u.uf !== ctx.uf) return false;
+        if (MI.slug(u.municipio || '') !== MI.slug(ctx.municipio || '')) return false;
       }
+      return true;
+    });
+  }
 
-      const caixas = [];
-      const naoCoube = [];
-      let postos = 0;
-      for (let i = 0; i < candidatos.length && postos < 14; i++) {
-        const f = candidatos[i];
-        const larguraTela = (f.cx[2] - f.cx[0]) * S.k;
-        const alturaTela = (f.cx[3] - f.cx[1]) * S.k;
-        const x = f.c[0] * S.k + S.tx;
-        const y = f.c[1] * S.k + S.ty;
-        if (x < 0 || y < 0 || x > S.largura || y > S.altura) continue;  /* fora de vista */
-        if (alturaTela < 15) { naoCoube.push([f, x, y]); continue; }
+  function desenharUnidades(ctx) {
+    const L = window.L;
+    M.unidades.clearLayers();
+    M.cobertura.clearLayers();
+    const lista = unidadesVisiveis(ctx);
 
-        const t = svgEl('text', {
-          x: x, y: y + 5, class: 'geo__rot' + (f === selecionada ? ' is-sel' : ''),
-          fill: S.max && f.v / S.max > 0.45 ? '#fff' : 'var(--text)'
-        });
-        t.textContent = f.nome;
-        camadaRotulos.appendChild(t);
+    lista.forEach(function (u) {
+      const pos = posicao(u);
+      if (!pos) return;
+      const exata = u.precisao === 'exata';
 
-        let b;
-        try { b = t.getBBox(); } catch (e) { camadaRotulos.removeChild(t); continue; }
-        /* o rótulo não pode ser maior que o município que ele nomeia */
-        if (b.width > larguraTela * 0.95) {
-          camadaRotulos.removeChild(t);
-          naoCoube.push([f, x, y]);
-          continue;
-        }
-        const bate = caixas.some(function (o) {
-          return !(b.x + b.width < o.x || b.x > o.x + o.width || b.y + b.height < o.y || b.y > o.y + o.height);
-        });
-        if (bate) { camadaRotulos.removeChild(t); continue; }
-        caixas.push(b);
-        postos++;
+      /* Raio geográfico de verdade: L.circle recebe metros e o Leaflet
+         projeta. Só para unidade com coordenada — 3 km em volta do centro
+         de um município não medem nada. */
+      if (PREF.cobertura && exata) {
+        L.circle(pos, {
+          pane: 'cobertura', radius: u.raio_m || 3000,
+          color: corFormato(u.formato), weight: 1, opacity: 0.55,
+          fillColor: corFormato(u.formato), fillOpacity: 0.1
+        }).addTo(M.cobertura);
       }
+      if (!PREF.unidades) return;
 
-      /* Os maiores que não cabem por dentro — caso de São Paulo capital no
-         mapa do estado — ganham chamada externa com linha. Sem isso o
-         município mais relevante da tela fica sem nome, e escrever por cima
-         dele cobriria justamente a geometria que importa. */
-      naoCoube.slice(0, 3).forEach(function (par) {
-        const f = par[0], x = par[1], y = par[2];
-        const dir = x > S.largura * 0.62 ? -1 : 1;
-        const lx = x + dir * 34, ly = y - 24;
-        const t = svgEl('text', {
-          x: lx + dir * 5, y: ly + 4,
-          class: 'geo__rot geo__rot--fora' + (f === selecionada ? ' is-sel' : ''),
-          'text-anchor': dir > 0 ? 'start' : 'end'
-        });
-        t.textContent = f.nome;
-        camadaRotulos.appendChild(t);
-        let b;
-        try { b = t.getBBox(); } catch (e) { camadaRotulos.removeChild(t); return; }
-        if (b.x < 0 || b.x + b.width > S.largura || b.y < 0) { camadaRotulos.removeChild(t); return; }
-        const bate = caixas.some(function (o) {
-          return !(b.x + b.width < o.x || b.x > o.x + o.width || b.y + b.height < o.y || b.y > o.y + o.height);
-        });
-        if (bate) { camadaRotulos.removeChild(t); return; }
-        caixas.push(b);
-        const linha = svgEl('path', { d: 'M' + x + ' ' + y + 'L' + lx + ' ' + ly, class: 'geo__chamada' });
-        camadaRotulos.insertBefore(linha, t);
-        camadaRotulos.appendChild(svgEl('circle', { cx: x, cy: y, r: 2.6, class: 'geo__ponto' }));
+      const marca = L.circleMarker(pos, {
+        pane: 'unidades', radius: 7,
+        color: css('--surface'), weight: 2.5,
+        fillColor: corFormato(u.formato), fillOpacity: exata ? 1 : 0.4,
+        dashArray: exata ? null : '3 2'
       });
-    }
-
-    /* ---------- camada de unidades ----------
-       Cada unidade entra com a posição que a precisão dela permite, e o
-       desenho diz qual é: coordenada informada vira ponto cheio; município
-       vira ponto vazado, porque é o centro do município, não a porta da
-       loja. O raio de cobertura só sai para quem tem coordenada — um
-       círculo de 3 km em volta de um centróide não mede nada. */
-    S.verUnidades = PREF.verUnidades;
-    S.verRaios = PREF.verRaios;
-
-    function posicaoDaUnidade(u) {
-      if (nivel === 'brasil') {
-        const c = u.uf && fonteGeo.centros[u.uf];
-        return c ? { p: c, aproximada: true } : null;
-      }
-      if (u.uf !== opts.uf) return null;
-      if (u.precisao === 'exata') {
-        const p = MI.geo.projetarNaUf(opts.uf, u.lat, u.lng);
-        if (p) return { p: p, aproximada: false };
-      }
-      if (u.municipio) {
-        const idx = MI.geo.indiceMunicipios(opts.uf);
-        const cod = idx && idx[MI.slug(u.municipio)];
-        const m = cod && fonteGeo.municipios[cod];
-        if (m) return { p: m.c, aproximada: true };
-      }
-      return null;
-    }
-
-    /* Quantas unidades do viewBox valem um pixel de tela. O marcador precisa
-       ter tamanho constante em PIXEL: dimensioná-lo em unidades do desenho
-       fazia o ponto virar sub-pixel assim que o mapa aproximava. */
-    function unidadesPorPixel() {
-      const r = svg.getBoundingClientRect();
-      if (!r.width || !r.height) return 1;
-      return 1 / Math.min(r.width / S.largura, r.height / S.altura);
-    }
-    function raioMarca() { return (4.6 * unidadesPorPixel()) / S.k; }
-
-    function desenharUnidades() {
-      while (camadaUnidades.firstChild) camadaUnidades.removeChild(camadaUnidades.firstChild);
-      if (!S.verUnidades || !MI.unidades) return;
-      const lista = MI.unidades.posicionaveis();
-      lista.forEach(function (u) {
-        const pos = posicaoDaUnidade(u);
-        if (!pos) return;
-        if (S.verRaios && !pos.aproximada && nivel === 'uf') {
-          const raio = MI.geo.metrosEmUnidades(opts.uf, u.raio_m || 3000);
-          if (raio) {
-            camadaUnidades.appendChild(svgEl('circle', {
-              cx: pos.p[0], cy: pos.p[1], r: raio,
-              class: 'geo__raio geo__raio--' + (u.formato || 'nao_informado')
-            }));
-          }
-        }
-        const marca = svgEl('circle', {
-          cx: pos.p[0], cy: pos.p[1], r: raioMarca(),
-          class: 'geo__unidade geo__unidade--' + (u.formato || 'nao_informado') +
-            (pos.aproximada ? ' is-aprox' : '')
-        });
-        marca.setAttribute('vector-effect', 'non-scaling-stroke');
-        marca.setAttribute('data-unidade', u.id);
-        camadaUnidades.appendChild(marca);
+      marca.bindTooltip(
+        '<strong>' + esc(u.nome) + '</strong>' +
+        '<span>' + esc(MI.unidades.rotuloFormato(u.formato)) + '</span>' +
+        '<span>' + esc(MI.unidades.rotuloPrecisao(u.precisao)) + '</span>' +
+        (u.municipio ? '<span>' + esc(u.municipio + (u.uf ? ' · ' + u.uf : '')) + '</span>' : ''),
+        { direction: 'top', opacity: 1, className: 'geo-dica' });
+      marca.on('click', function (ev) {
+        L.DomEvent.stop(ev.originalEvent);
+        if (ctx.aoSelecionarUnidade) ctx.aoSelecionarUnidade(u);
       });
-    }
+      marca.addTo(M.unidades);
+    });
+    return lista.length;
+  }
 
-    /* o raio do marcador compensa o zoom para não virar um disco gigante */
-    function redimensionarMarcas() {
-      const marcas = camadaUnidades.querySelectorAll('.geo__unidade');
-      const r = raioMarca();
-      for (let i = 0; i < marcas.length; i++) marcas[i].setAttribute('r', r);
-    }
-
-    /* ---------- dica ---------- */
-    function textoDica(f) {
-      const linhas = [el('strong', { text: f.nome })];
-      if (!f.ag) linhas.push(el('span', { text: 'Sem registros no recorte' }));
-      else if (f.suprimido) linhas.push(el('span', { text: 'Suprimido: menos de ' + ag.k + ' registros' }));
-      else {
-        linhas.push(el('span', { text: MI.fmt.int(f.ag.n) + ' clientes · ' + MI.fmt.pctOf(f.ag.n, opts.rows.length, 1) + ' do recorte' }));
-        if (MI.store.has('_receita')) linhas.push(el('span', { text: 'Receita ' + MI.fmt.money(f.ag.receita) }));
-        if (f.ag.comValor) linhas.push(el('span', { text: 'Ticket médio ' + MI.fmt.money(f.ag.valor / f.ag.comValor) }));
+  /* ---------------- Barra, legenda, painel ---------------- */
+  function alternador(rotulo, chave, habilitado, titulo) {
+    const b = el('button', {
+      class: 'geo__camada-btn' + (PREF[chave] ? ' is-on' : ''), type: 'button',
+      title: titulo, disabled: !habilitado,
+      onclick: function () {
+        PREF[chave] = !PREF[chave];
+        b.classList.toggle('is-on', PREF[chave]);
+        if (M.ctx) W.aplicar(M.ctx);
       }
-      return linhas;
-    }
+    }, rotulo);
+    return b;
+  }
 
-    svg.addEventListener('pointermove', function (ev) {
-      if (arrastando) return;
-      /* a unidade tem prioridade na dica: ela está por cima do polígono e é
-         o que o cursor está mirando */
-      const uEl = ev.target.closest ? ev.target.closest('[data-unidade]') : null;
-      if (uEl && MI.unidades) {
-        const u = MI.unidades.items.filter(function (x) { return x.id === uEl.getAttribute('data-unidade'); })[0];
-        if (u) {
-          MI.clear(dica);
-          dica.appendChild(el('strong', { text: u.nome }));
-          dica.appendChild(el('span', { text: MI.unidades.rotuloFormato(u.formato) }));
-          dica.appendChild(el('span', { text: MI.unidades.rotuloPrecisao(u.precisao) }));
-          if (u.municipio) dica.appendChild(el('span', { text: u.municipio + (u.uf ? ' · ' + u.uf : '') }));
-          const r = palco.getBoundingClientRect();
-          dica.hidden = false;
-          dica.style.left = Math.min(r.width - 12, Math.max(12, ev.clientX - r.left)) + 'px';
-          dica.style.top = (ev.clientY - r.top - 14) + 'px';
-          return;
-        }
-      }
-      const alvo = ev.target.closest ? ev.target.closest('[data-id]') : null;
-      const id = alvo ? alvo.getAttribute('data-id') : null;
-      if (id !== S.hover) {
-        S.hover = id;
-        pintar();
-      }
-      if (!id) { dica.hidden = true; return; }
-      const f = feicoes.filter(function (x) { return x.id === id; })[0];
-      MI.clear(dica);
-      textoDica(f).forEach(function (n) { dica.appendChild(n); });
-      const r = palco.getBoundingClientRect();
-      dica.hidden = false;
-      dica.style.left = Math.min(r.width - 12, Math.max(12, ev.clientX - r.left)) + 'px';
-      dica.style.top = (ev.clientY - r.top - 14) + 'px';
-    });
-    svg.addEventListener('pointerleave', function () {
-      S.hover = null; dica.hidden = true; pintar();
-    });
-
-    svg.addEventListener('click', function (ev) {
-      if (svg._ignorarClique) { svg._ignorarClique = false; return; }
-      const alvo = ev.target.closest ? ev.target.closest('[data-id]') : null;
-      if (!alvo) return;
-      const f = feicoes.filter(function (x) { return x.id === alvo.getAttribute('data-id'); })[0];
-      if (!f || !f.ag || f.suprimido) return;
-      enquadrar(f, true);
-      if (opts.onSelect) opts.onSelect(f.chave);
-    });
-    svg.addEventListener('keydown', function (ev) {
-      if (ev.key !== 'Enter' && ev.key !== ' ') return;
-      const alvo = ev.target.closest ? ev.target.closest('[data-id]') : null;
-      if (!alvo) return;
-      ev.preventDefault();
-      const f = feicoes.filter(function (x) { return x.id === alvo.getAttribute('data-id'); })[0];
-      if (f && f.ag && !f.suprimido && opts.onSelect) { enquadrar(f, true); opts.onSelect(f.chave); }
-    });
-
-    /* ---------- barra superior ---------- */
-    const trilha = el('div', { class: 'geo__trilha' });
-    (opts.crumbs || []).forEach(function (c, i) {
-      if (i) trilha.appendChild(el('span', { class: 'geo__crumb-sep', text: '›' }));
-      trilha.appendChild(el('button', {
-        class: 'geo__crumb' + (c.aoClicar ? '' : ' is-on'), type: 'button',
-        onclick: c.aoClicar || null
+  function montarBarra(ctx) {
+    MI.clear(M.trilha);
+    (ctx.crumbs || []).forEach(function (c, i) {
+      if (i) M.trilha.appendChild(el('span', { class: 'geo__sep', text: '/' }));
+      M.trilha.appendChild(el('button', {
+        class: 'geo__crumb' + (c.aoClicar ? '' : ' is-on'), type: 'button', onclick: c.aoClicar || null
       }, c.rotulo));
     });
 
-    const seletorMetrica = el('select', { class: 'input input--sm geo__metrica', 'aria-label': 'Métrica do mapa' },
-      metricas.map(function (m) {
-        return el('option', { value: m.id, text: m.rotulo, selected: m.id === S.metrica.id ? '' : null });
-      }));
-    seletorMetrica.addEventListener('change', function () {
-      S.metrica = metricas.filter(function (m) { return m.id === seletorMetrica.value; })[0] || metricas[0];
-      PREF.metrica = S.metrica.id;
-      recalcular(); pintar(); agendarRotulos(); atualizarLegenda();
+    MI.clear(M.seletor);
+    ctx.metricas.forEach(function (m) {
+      M.seletor.appendChild(el('option', { value: m.id, text: m.rotulo, selected: m.id === ctx.metrica.id ? '' : null }));
     });
 
-    const busca = el('input', {
-      class: 'input input--sm geo__busca', type: 'search',
-      placeholder: nivel === 'uf' ? 'Buscar município…' : 'Buscar estado…',
-      'aria-label': 'Buscar no mapa'
-    });
-    const sugestoes = el('div', { class: 'geo__sugestoes', hidden: true });
-    busca.addEventListener('input', function () {
-      const q = MI.slug(busca.value.trim());
-      MI.clear(sugestoes);
-      if (q.length < 2) { sugestoes.hidden = true; return; }
-      const achados = feicoes.filter(function (f) { return MI.slug(f.nome).indexOf(q) >= 0; })
-        .sort(function (a, b) { return b.v - a.v; }).slice(0, 7);
-      if (!achados.length) {
-        sugestoes.appendChild(el('div', { class: 'geo__sug is-vazio', text: 'Nada encontrado' }));
-      } else {
-        achados.forEach(function (f) {
-          sugestoes.appendChild(el('button', {
-            class: 'geo__sug', type: 'button',
-            onclick: function () {
-              busca.value = ''; sugestoes.hidden = true;
-              enquadrar(f, true);
-              if (f.ag && !f.suprimido && opts.onSelect) opts.onSelect(f.chave);
-              else MI.toast(f.nome + ' não tem registros no recorte atual.', 'info');
-            }
-          }, [
-            el('span', { text: f.nome }),
-            el('small', { text: f.ag && !f.suprimido ? S.metrica.fmt(f.v) : 'sem registros' })
-          ]));
-        });
-      }
-      sugestoes.hidden = false;
-    });
-    busca.addEventListener('blur', function () { setTimeout(function () { sugestoes.hidden = true; }, 150); });
-
-    const botao = function (rotulo, titulo, aoClicar, conteudo) {
-      return el('button', { class: 'geo__ctrl', type: 'button', title: titulo, 'aria-label': titulo, onclick: aoClicar },
-        conteudo || rotulo);
-    };
-    const botaoReset = botao('', 'Voltar ao enquadramento inicial', function () {
-      S.k = 1; S.tx = 0; S.ty = 0; aplicar();
-    }, el('span', { html: MI.icon('refresh', 15) }));
-    botaoReset.disabled = true;
-
-    const botaoTela = botao('', 'Tela cheia', function () {
-      if (document.fullscreenElement) document.exitFullscreen();
-      else if (raiz.requestFullscreen) raiz.requestFullscreen();
-    }, el('span', { html: MI.icon('grid', 15) }));
-
-    const botaoPainel = botao('', 'Mostrar ou esconder o painel', function () {
-      S.painel = !S.painel;
-      raiz.classList.toggle('is-com-painel', S.painel);
-    }, el('span', { html: MI.icon('chevron', 15) }));
-
-    /* Camadas operacionais. Ficam desligadas quando não há o que mostrar, e
-       com o motivo no título: botão que não faz nada é pior que botão
-       ausente. */
     const bal = MI.unidades ? MI.unidades.balanco() : { total: 0, exatas: 0 };
-    const alternador = function (rotulo, ligado, habilitado, titulo, aoMudar) {
-      const b = el('button', {
-        class: 'geo__camada-btn' + (ligado ? ' is-on' : ''), type: 'button',
-        title: titulo, disabled: !habilitado,
-        onclick: function () {
-          const novo = !b.classList.contains('is-on');
-          b.classList.toggle('is-on', novo);
-          aoMudar(novo);
-        }
-      }, rotulo);
-      return b;
-    };
+    MI.clear(M.camadasEl);
+    M.camadasEl.appendChild(alternador('Concentração', 'coropletico', true, 'Pinta o território pela métrica escolhida'));
+    M.camadasEl.appendChild(alternador('Unidades', 'unidades', bal.total > 0,
+      bal.total ? MI.fmt.int(bal.total) + ' unidades cadastradas' : 'Nenhuma unidade cadastrada ainda'));
+    M.camadasEl.appendChild(alternador('Cobertura', 'cobertura', bal.exatas > 0,
+      bal.exatas ? 'Raio operacional das unidades com coordenada' : 'Nenhuma unidade tem coordenada: o raio sairia em volta do centro do município'));
+  }
 
-    const btnUnidades = alternador('Unidades', S.verUnidades, bal.total > 0,
-      bal.total ? MI.fmt.int(bal.total) + ' unidades cadastradas' : 'Nenhuma unidade cadastrada ainda',
-      function (v) { S.verUnidades = v; PREF.verUnidades = v; desenharUnidades(); });
-
-    const btnRaios = alternador('Raio 3 km', S.verRaios, nivel === 'uf' && bal.exatas > 0,
-      nivel !== 'uf' ? 'O raio só faz sentido dentro de um estado'
-        : bal.exatas ? 'Cobertura das unidades com coordenada informada'
-          : 'Nenhuma unidade tem coordenada: o raio sairia em volta do centro do município',
-      function (v) { S.verRaios = v; PREF.verRaios = v; desenharUnidades(); });
-
-    const barra = el('div', { class: 'geo__barra' }, [
-      trilha,
-      el('div', { class: 'geo__barra-dir' }, [
-        el('div', { class: 'geo__camadas' }, [btnUnidades, btnRaios]),
-        el('div', { class: 'geo__campo-busca' }, [busca, sugestoes]),
-        seletorMetrica,
-        botaoPainel
-      ])
-    ]);
-
-    const controles = el('div', { class: 'geo__controles' }, [
-      botao('+', 'Aproximar', function () { zoomPara(S.k * 1.4, S.largura / 2, S.altura / 2); }),
-      botao('−', 'Afastar', function () { zoomPara(S.k / 1.4, S.largura / 2, S.altura / 2); }),
-      botaoReset,
-      botaoTela
-    ]);
-    palco.appendChild(controles);
-
-    /* ---------- legenda ---------- */
-    const faixa = el('span', { class: 'geo__ramp' });
-    const legMin = el('span', { class: 'geo__leg-v', text: '0' });
-    const legMax = el('span', { class: 'geo__leg-v' });
-    const legUnidade = el('span', { class: 'geo__leg-un' });
-    function atualizarLegenda() {
-      faixa.style.background = 'linear-gradient(90deg,' + [0, .25, .5, .75, 1].map(function (t) {
+  function montarLegenda(ctx) {
+    MI.clear(M.legenda);
+    if (PREF.coropletico) {
+      const ramp = 'linear-gradient(90deg,' + [0, .25, .5, .75, 1].map(function (t) {
         return MI.geo.scale(0.14 + t * 0.86);
       }).join(',') + ')';
-      legMax.textContent = S.metrica.fmt(S.max || 0);
-      legUnidade.textContent = S.metrica.rotulo + ' · ' + S.metrica.unidade;
-    }
-    atualizarLegenda();
-
-    const legenda = el('div', { class: 'geo__legenda' }, [
-      el('div', { class: 'geo__leg-linha' }, [legMin, faixa, legMax]),
-      el('div', { class: 'geo__leg-un-linha' }, legUnidade),
-      el('div', { class: 'geo__leg-chaves' }, [
-        el('span', { class: 'geo__chave' }, [el('i', { class: 'geo__sw is-sem' }), 'sem registros']),
-        ag.gruposSuprimidos
-          ? el('span', { class: 'geo__chave' }, [el('i', { class: 'geo__sw is-sup' }), 'suprimido (< ' + ag.k + ')'])
-          : null,
-        el('span', { class: 'geo__chave' }, [el('i', { class: 'geo__sw is-sel' }), 'selecionado'])
-      ].filter(Boolean)),
-      el('div', { class: 'geo__fonte', text: 'Malha IBGE · projeção cônica equivalente' })
-    ]);
-    palco.appendChild(legenda);
-
-    /* ---------- painel contextual ---------- */
-    const painel = el('aside', { class: 'geo__painel' });
-    function montarPainel() {
-      MI.clear(painel);
-      const sel = opts.selecionado
-        ? feicoes.filter(function (f) { return f.chave === opts.selecionado; })[0]
-        : null;
-
-      painel.appendChild(el('div', { class: 'geo__painel-topo' }, [
-        el('h4', { text: sel ? sel.nome : (nivel === 'uf' ? MI.UF_NOMES[opts.uf] : 'Brasil') }),
-        el('button', {
-          class: 'geo__ctrl geo__ctrl--fecha', type: 'button', title: 'Fechar painel',
-          onclick: function () { S.painel = false; raiz.classList.remove('is-com-painel'); }
-        }, el('span', { html: MI.icon('close', 14) }))
+      M.legenda.appendChild(el('div', { class: 'geo__leg-escala' }, [
+        el('span', { text: '0' }),
+        el('i', { class: 'geo__ramp', style: 'background:' + ramp }),
+        el('span', { text: ctx.metrica.fmt(ctx.max || 0) })
       ]));
-
-      if (sel && sel.ag && !sel.suprimido) {
-        const a = sel.ag;
-        painel.appendChild(MI.ui.statline([
-          { k: 'Clientes', v: MI.fmt.int(a.n) },
-          { k: 'Participação', v: MI.fmt.pctOf(a.n, opts.rows.length, 1) },
-          MI.store.has('_receita') ? { k: 'Receita', v: MI.fmt.money(a.receita) } : null,
-          a.comValor ? { k: 'Ticket médio', v: MI.fmt.money(a.valor / a.comValor) } : null
-        ].filter(Boolean)));
-        if (opts.aoAprofundar) {
-          painel.appendChild(el('div', { style: 'margin-top:12px' },
-            MI.ui.btn(opts.rotuloAprofundar || 'Aprofundar', {
-              sm: true, variant: 'accent', icon: 'target',
-              onClick: function () { opts.aoAprofundar(sel.chave); }
-            })));
-        }
-      }
-
-      /* ranking: o painel é por onde se investiga sem precisar caçar
-         polígonos pequenos no mapa */
-      const ranking = feicoes.filter(function (f) { return f.ag && !f.suprimido; })
-        .sort(function (a, b) { return b.v - a.v; }).slice(0, 25);
-      painel.appendChild(el('div', { class: 'geo__painel-sec', text: 'Ranking por ' + S.metrica.rotulo.toLowerCase() }));
-      painel.appendChild(el('div', { class: 'geo__lista' }, ranking.map(function (f, i) {
-        const prop = S.max ? f.v / S.max : 0;
-        return el('button', {
-          class: 'geo__item' + (opts.selecionado === f.chave ? ' is-on' : ''), type: 'button',
-          onclick: function () { enquadrar(f, true); if (opts.onSelect) opts.onSelect(f.chave); }
-        }, [
-          el('span', { class: 'geo__item-pos', text: String(i + 1) }),
-          el('span', { class: 'geo__item-nome', text: f.nome }),
-          el('span', { class: 'geo__item-v', text: S.metrica.fmt(f.v) }),
-          el('i', { class: 'geo__item-barra', style: 'width:' + Math.round(prop * 100) + '%' })
-        ]);
+      M.legenda.appendChild(el('div', { class: 'geo__leg-un', text: ctx.metrica.rotulo + ' · ' + ctx.metrica.unidade }));
+    }
+    const chaves = [];
+    if (PREF.coropletico) chaves.push(['is-vazio', 'sem registros']);
+    if (ctx.ag.gruposSuprimidos) chaves.push(['is-sup', 'suprimido (< ' + ctx.ag.k + ')']);
+    if (PREF.unidades && ctx.nUnidades) {
+      chaves.push(['is-propria', 'loja própria']);
+      chaves.push(['is-franquia', 'franquia']);
+      chaves.push(['is-aprox', 'posição aproximada']);
+    }
+    if (chaves.length) {
+      M.legenda.appendChild(el('div', { class: 'geo__leg-chaves' }, chaves.map(function (c) {
+        return el('span', { class: 'geo__chave' }, [el('i', { class: 'geo__sw ' + c[0] }), c[1]]);
       })));
-
-      if (opts.naoLocalizados && opts.naoLocalizados.length) {
-        painel.appendChild(el('div', { class: 'geo__painel-sec', text: 'Fora do mapa' }));
-        painel.appendChild(el('div', { class: 'geo__aviso' }, [
-          el('strong', { text: MI.fmt.int(opts.naoLocalizados.length) + ' nomes não batem com a malha. ' }),
-          'Continuam nos números da plataforma; só não têm posição.'
-        ]));
-        painel.appendChild(el('div', { class: 'geo__lista' }, opts.naoLocalizados.slice(0, 10).map(function (e) {
-          return el('div', { class: 'geo__item is-inerte' }, [
-            el('span', { class: 'geo__item-nome', text: e.label }),
-            el('span', { class: 'geo__item-v', text: MI.fmt.int(e.value) })
-          ]);
-        })));
-      }
     }
-    montarPainel();
+  }
 
-    raiz.appendChild(barra);
-    raiz.appendChild(el('div', { class: 'geo__corpo' }, [palco, painel]));
-    if (S.painel) raiz.classList.add('is-com-painel');
+  function montarPainel(ctx) {
+    MI.clear(M.painel);
+    const topo = el('div', { class: 'geo__painel-topo' }, [
+      el('h4', { text: ctx.tituloPainel }),
+      el('button', {
+        class: 'geo__fechar', type: 'button', title: 'Recolher painel',
+        onclick: function () { M.raiz.classList.toggle('is-sem-painel'); setTimeout(function () { if (M.mapa) M.mapa.invalidateSize(); }, 220); }
+      }, '›')
+    ]);
+    M.painel.appendChild(topo);
+    if (ctx.painel) ctx.painel(M.painel, ctx);
+  }
 
-    pintar();
-    desenharUnidades();
-    /* Medir texto exige layout pronto. Um setTimeout sozinho chegava cedo
-       demais e todo rótulo era podado por getBBox zerado — daí o observador,
-       que também cobre redimensionamento de janela e entrada em tela cheia. */
-    if (window.ResizeObserver) {
-      const obs = new ResizeObserver(function () { agendarRotulos(); });
-      obs.observe(palco);
+  /* ---------------- Busca ---------------- */
+  function buscar() {
+    const ctx = M.ctx;
+    const q = MI.slug(M.busca.value.trim());
+    MI.clear(M.sugestoes);
+    if (!ctx || q.length < 2) { M.sugestoes.hidden = true; return; }
+    const achados = [];
+    (ctx.feicoes ? ctx.feicoes.features : []).forEach(function (f) {
+      if (achados.length < 8 && MI.slug(f.properties.nome).indexOf(q) >= 0) achados.push({ f: f });
+    });
+    if (MI.unidades) {
+      MI.unidades.items.forEach(function (u) {
+        if (achados.length < 10 && MI.slug(u.nome).indexOf(q) >= 0) achados.push({ u: u });
+      });
     }
-    setTimeout(function () {
-      agendarRotulos();
-      const sel = opts.selecionado
-        ? feicoes.filter(function (f) { return f.chave === opts.selecionado; })[0]
-        : null;
-      if (sel) enquadrar(sel, false);
-    }, 0);
+    if (!achados.length) {
+      M.sugestoes.appendChild(el('div', { class: 'geo__sug is-vazio', text: 'Nada encontrado' }));
+    } else {
+      achados.forEach(function (a) {
+        const rotulo = a.f ? a.f.properties.nome : a.u.nome;
+        const nota = a.f ? (a.f._ag && !a.f._ag.suprimido ? ctx.metrica.fmt(a.f._v) : 'sem registros') : 'unidade';
+        M.sugestoes.appendChild(el('button', {
+          class: 'geo__sug', type: 'button',
+          onclick: function () {
+            M.busca.value = ''; M.sugestoes.hidden = true;
+            if (a.f) { enquadrar(a.f.properties.caixa); if (ctx.aoSelecionar) ctx.aoSelecionar(ctx.chave(a.f), a.f); }
+            else { const p = posicao(a.u); if (p) M.mapa.setView(p, 14); if (ctx.aoSelecionarUnidade) ctx.aoSelecionarUnidade(a.u); }
+          }
+        }, [el('span', { text: rotulo }), el('small', { text: nota })]));
+      });
+    }
+    M.sugestoes.hidden = false;
+  }
 
-    raiz._reagir = function () { recalcular(); pintar(); desenharUnidades(); agendarRotulos(); atualizarLegenda(); montarPainel(); };
-    return raiz;
+  function enquadrar(caixa, opcoes) {
+    if (!M.mapa || !caixa) return;
+    M.mapa.fitBounds(caixa, Object.assign({ padding: [28, 28], animate: true, duration: 0.5 }, opcoes || {}));
+  }
+  W.enquadrar = enquadrar;
+
+  /* ---------------- Ciclo ---------------- */
+
+  /* Devolve o nó, montando-o na primeira vez. As chamadas seguintes só
+     atualizam dados e estilos: o mapa continua o mesmo, com o zoom onde o
+     usuário deixou. */
+  W.obter = function () {
+    if (!M.raiz) montar();
+    return M.raiz;
   };
 
+  W.iniciar = function (ctx) {
+    return W.carregarLib().then(function () {
+      if (!M.pronto) {
+        criarMapa(window.L);
+        M.mapa.setView([-15, -54], 4);
+      }
+      W.aplicar(ctx);
+      setTimeout(function () { if (M.mapa) M.mapa.invalidateSize(); }, 60);
+      return M;
+    });
+  };
+
+  W.aplicar = function (ctx) {
+    if (!M.pronto) return;
+    M.ctx = ctx;
+    ctx.metricas = metricas();
+    ctx.metrica = ctx.metricas.filter(function (m) { return m.id === PREF.metrica; })[0] || ctx.metricas[0];
+    PREF.metrica = ctx.metrica.id;
+    ctx.ag = agregar(ctx.rows, ctx.campo);
+    ctx.total = ctx.rows.length;
+
+    /* quantas unidades por território, para a dica e para o painel */
+    ctx.unidadesPorChave = {};
+    if (MI.unidades) {
+      MI.unidades.items.forEach(function (u) {
+        if (u.precisao === 'ausente') return;
+        const k = ctx.nivel === 'brasil' ? u.uf : (u.municipio || '');
+        if (!k) return;
+        ctx.unidadesPorChave[k] = (ctx.unidadesPorChave[k] || 0) + 1;
+      });
+    }
+
+    basemap(ctx.nivel === 'municipio');
+    desenharTerritorio(ctx);
+    ctx.nUnidades = desenharUnidades(ctx);
+    montarBarra(ctx);
+    montarLegenda(ctx);
+    montarPainel(ctx);
+
+    /* Enquadra só quando o escopo territorial muda. Um filtro qualquer não
+       pode jogar a câmera de volta: quem deu zoom numa região espera
+       continuar nela. */
+    const escopo = ctx.nivel + '|' + (ctx.uf || '') + '|' + (ctx.municipio || '');
+    if (ctx.enquadrarEm && escopo !== M.escopo) enquadrar(ctx.enquadrarEm);
+    M.escopo = escopo;
+  };
+
+  W.destacar = function (chave) {
+    const l = M.porChave && M.porChave[chave];
+    if (l && l.bringToFront) l.bringToFront();
+  };
+
+  W.invalidar = function () { if (M.mapa) M.mapa.invalidateSize(); };
+
   MI.geoMap = W;
+  MI.geoMapEstado = M;
 
 })(window.MI);

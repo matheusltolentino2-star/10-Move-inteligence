@@ -23,10 +23,11 @@ MI.views = MI.views || {};
         }));
         return;
       }
-      if (!rows.length) {
-        root.appendChild(U.card({ span: 'c12', body: U.empty('Nenhum registro no recorte atual') }));
-        return;
-      }
+      /* Recorte vazio NÃO devolve uma tela vazia: o mapa continua de pé.
+         Selecionar uma cidade sem clientes é navegação legítima, e quem fez
+         isso precisa da trilha para voltar. Só as análises abaixo é que
+         ficam sem o que mostrar. */
+      const recorteVazio = !rows.length;
 
       /* ---------- Estados ---------- */
       if (st.has('_uf')) {
@@ -48,10 +49,20 @@ MI.views = MI.views || {};
           return Array.from(f.values)[0];
         })();
 
-        root.appendChild(U.guarded('geo.uf', function () {
-          return el('div', { style: 'margin-bottom:16px' },
-            workspace(ufSelecionada, cidadeSelecionada, rows));
-        }));
+        const hospedeiro = el('div', { style: 'margin-bottom:16px' });
+        root.appendChild(U.guarded('geo.uf', function () { return hospedeiro; }));
+        workspace(hospedeiro, ufSelecionada, cidadeSelecionada, rows);
+
+        /* daqui para baixo são as análises, que de fato não têm o que
+           mostrar sem registros no recorte */
+        if (recorteVazio) {
+          root.appendChild(el('div', { class: 'grid' }, U.card({
+            span: 'c12',
+            body: U.empty('Nenhum registro neste recorte',
+              'O território continua navegável acima. Use a trilha para voltar a um nível com dados.')
+          })));
+          return;
+        }
 
         /* A concentração acompanha o nível do mapa. Dentro de um estado,
            medir dependência "entre UFs" devolve sempre HHI 1,000 e uma
@@ -234,72 +245,207 @@ MI.views = MI.views || {};
       root.appendChild(el('div', { class: 'grid' }, U.card({ span: 'c12', body: U.findings(leituras) })));
     }
   };
-
   /* ================= Workspace territorial =================
-     Um componente só para os dois níveis. A malha municipal chega depois do
-     render, que é síncrono, então este estado guarda em que pé está o
-     carregamento de cada UF — para a tela dizer "carregando" ou "falhou" em
-     vez de piscar vazia. */
-  const malha = { uf: null, estado: null, erro: null };
+     O mapa é um objeto vivo: a view devolve sempre o mesmo nó e só manda
+     dados novos. Recriar a cada render perderia o zoom e recarregaria
+     tiles à toa.
 
-  function workspace(uf, cidade, rows) {
+     O nível sai dos próprios filtros da plataforma — descer para um estado
+     no mapa é idêntico a filtrar por ele, então todos os módulos
+     acompanham sem uma segunda camada de análise só para o mapa. */
+  const geoEstado = { carregando: null, erro: null };
+
+  function nivelAtual(uf, cidade) {
+    if (uf && cidade) return 'municipio';
+    if (uf) return 'uf';
+    return 'brasil';
+  }
+
+  function workspace(root, uf, cidade, rows) {
     const st = MI.store;
+    const nivel = nivelAtual(uf, cidade);
+
+    /* a geometria necessária para este nível já está carregada? */
+    const precisaUf = nivel !== 'brasil';
+    const faltaBrasil = !MI.geo.temBrasil();
+    const faltaUf = precisaUf && !MI.geo.temUf(uf);
+    if (faltaBrasil || faltaUf) {
+      const chave = faltaBrasil ? 'BR' : uf;
+      if (geoEstado.carregando !== chave) {
+        geoEstado.carregando = chave; geoEstado.erro = null;
+        (faltaBrasil ? MI.geo.carregarBrasil() : MI.geo.carregarUf(uf))
+          .then(function () { geoEstado.carregando = null; MI.app.rerender(); })
+          .catch(function (e) { geoEstado.erro = e.message; MI.app.rerender(); });
+      }
+      root.appendChild(el('div', { class: 'geo geo--carregando' },
+        geoEstado.erro
+          ? U.note('crit', [el('strong', { text: 'A malha não carregou. ' }), geoEstado.erro])
+          : U.empty('Carregando a geometria' + (faltaBrasil ? ' do Brasil' : ' de ' + (MI.UF_NOMES[uf] || uf)) + '…')));
+      return;
+    }
+
     const crumbs = [{
       rotulo: 'Brasil',
       aoClicar: uf ? function () { st.setFilter('_cidade', null); st.setFilter('_uf', null); } : null
     }];
-    if (uf) {
-      crumbs.push({
-        rotulo: MI.UF_NOMES[uf] || uf,
-        aoClicar: cidade ? function () { st.setFilter('_cidade', null); } : null
-      });
-    }
+    if (uf) crumbs.push({
+      rotulo: MI.UF_NOMES[uf] || uf,
+      aoClicar: cidade ? function () { st.setFilter('_cidade', null); } : null
+    });
     if (cidade) crumbs.push({ rotulo: cidade, aoClicar: null });
 
-    /* nível nacional, ou estado cuja malha ainda não chegou */
-    if (!uf || !st.has('_cidade')) {
-      return MI.geoMap.workspace({
-        nivel: 'brasil', rows: rows, campo: '_uf', crumbs: crumbs,
-        selecionado: uf,
-        onSelect: function (sigla) { MI.app.toggleCatValue('_uf', sigla); }
-      });
-    }
-
-    if (!MI.geo.temUf(uf)) {
-      if (malha.uf !== uf) {
-        malha.uf = uf; malha.estado = 'carregando'; malha.erro = null;
-        MI.geo.carregarUf(uf)
-          .then(function () { malha.estado = 'pronta'; MI.app.rerender(); })
-          .catch(function (e) { malha.estado = 'erro'; malha.erro = e.message; MI.app.rerender(); });
+    let feicoes, campo, chave, selecionado, enquadrarEm, titulo;
+    if (nivel === 'brasil') {
+      feicoes = MI.GEO_BR;
+      campo = '_uf';
+      chave = function (f) { return f.properties.uf; };
+      selecionado = null;
+      /* o enquadramento nacional sai da própria geometria, então acompanha
+         o tamanho do contêiner em vez de depender de um zoom fixo */
+      enquadrarEm = [[-33.9, -74.0], [5.3, -34.0]];
+      titulo = 'Brasil';
+    } else {
+      const M = MI.GEO_MUN[uf];
+      campo = '_cidade';
+      chave = function (f) { return f.properties.nome; };
+      if (nivel === 'uf') {
+        feicoes = M;
+        selecionado = null;
+        enquadrarEm = ufCaixa(uf);
+        titulo = MI.UF_NOMES[uf] || uf;
+      } else {
+        const f = MI.geo.municipioPorNome(uf, cidade);
+        feicoes = f ? { type: 'FeatureCollection', features: [f] } : { type: 'FeatureCollection', features: [] };
+        selecionado = cidade;
+        enquadrarEm = f ? f.properties.caixa : ufCaixa(uf);
+        titulo = cidade;
       }
-      return el('div', { class: 'geo' }, [
-        el('div', { class: 'geo__barra' }, el('div', { class: 'geo__trilha' },
-          crumbs.map(function (c, i) {
-            return el('button', {
-              class: 'geo__crumb' + (c.aoClicar ? '' : ' is-on'), type: 'button', onclick: c.aoClicar || null
-            }, (i ? '› ' : '') + c.rotulo);
-          }))),
-        el('div', { class: 'geo__corpo' }, el('div', { class: 'geo__palco' },
-          malha.estado === 'erro'
-            ? U.note('crit', [el('strong', { text: 'A malha municipal não carregou. ' }), malha.erro || ''])
-            : U.empty('Carregando os municípios de ' + (MI.UF_NOMES[uf] || uf) + '…')))
-      ]);
     }
 
-    /* nomes de cidade que não batem com nenhum município da UF: o balanço
-       tem que aparecer, senão sumir do mapa vira sumir da análise */
-    const idx = MI.geo.indiceMunicipios(uf);
-    const naoLocalizados = MI.privacy.guardDist(S.dist(rows, '_cidade', {}))
-      .filter(function (e) { return !e.suppressed && !e.isOther && !idx[MI.slug(e.label)]; });
+    const ctx = {
+      nivel: nivel, uf: uf, municipio: cidade, rows: rows, campo: campo,
+      feicoes: feicoes, chave: chave, selecionado: selecionado,
+      crumbs: crumbs, enquadrarEm: enquadrarEm, tituloPainel: titulo,
+      aoSelecionar: function (valor) {
+        if (nivel === 'brasil') MI.app.toggleCatValue('_uf', valor);
+        else if (nivel === 'uf') MI.app.toggleCatValue('_cidade', valor);
+      },
+      aoSelecionarUnidade: function (u) { geoEstado.unidade = u; MI.app.rerender(); },
+      painel: function (host, c) { painelTerritorial(host, c, uf, cidade, rows); }
+    };
 
-    return MI.geoMap.workspace({
-      nivel: 'uf', uf: uf, rows: rows, campo: '_cidade', crumbs: crumbs,
-      selecionado: cidade,
-      naoLocalizados: naoLocalizados,
-      onSelect: function (nome) { MI.app.toggleCatValue('_cidade', nome); },
-      rotuloAprofundar: st.has('_bairro') ? 'Ver bairros' : null,
-      aoAprofundar: st.has('_bairro') ? function () { MI.app.go('geography'); } : null
+    root.appendChild(MI.geoMap.obter());
+    MI.geoMap.iniciar(ctx).catch(function (e) {
+      MI.toast('Mapa: ' + (e.message || e), 'error');
     });
+  }
+
+  function ufCaixa(uf) {
+    const f = MI.GEO_BR && MI.GEO_BR.features.filter(function (x) { return x.properties.uf === uf; })[0];
+    return f ? f.properties.caixa : null;
+  }
+
+  /* Painel contextual: sem seleção mostra o território; com unidade
+     selecionada mostra a unidade, sem tirar o mapa da frente. */
+  function painelTerritorial(host, ctx, uf, cidade, rows) {
+    const u = geoEstado.unidade;
+    if (u) {
+      host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Unidade' }));
+      host.appendChild(U.statline([
+        { k: 'Formato', v: MI.unidades.rotuloFormato(u.formato) },
+        { k: 'Posição', v: MI.unidades.rotuloPrecisao(u.precisao) },
+        u.municipio ? { k: 'Município', v: u.municipio + (u.uf ? ' · ' + u.uf : '') } : null,
+        u.precisao === 'exata' ? { k: 'Raio', v: MI.fmt.int(u.raio_m) + ' m' } : null
+      ].filter(Boolean)));
+      if (u.endereco) host.appendChild(el('p', { class: 'geo__painel-txt', text: u.endereco }));
+      const vendas = MI.tx.has() ? MI.tx.items.filter(function (i) {
+        return i._unidade && MI.slug(i._unidade) === MI.slug(u.nome);
+      }) : [];
+      if (vendas.length) {
+        const receita = MI.sum(vendas, function (i) { return i._valor || 0; });
+        const pedidos = new Set(vendas.map(function (i) { return i._pedido; })).size;
+        host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Comercial' }));
+        host.appendChild(U.statline([
+          { k: 'Itens vendidos', v: MI.fmt.int(vendas.length) },
+          { k: 'Pedidos', v: MI.fmt.int(pedidos) },
+          { k: 'Receita', v: MI.fmt.money(receita) },
+          { k: 'Ticket por pedido', v: pedidos ? MI.fmt.money(receita / pedidos) : '—' }
+        ]));
+      } else {
+        host.appendChild(el('p', { class: 'geo__painel-txt', text: 'Nenhuma venda associada a esta unidade no recorte atual.' }));
+      }
+      host.appendChild(el('div', { style: 'padding:10px 12px' }, U.btn('Voltar ao território', {
+        sm: true, variant: 'ghost', onClick: function () { geoEstado.unidade = null; MI.app.rerender(); }
+      })));
+      return;
+    }
+
+    /* visão do território */
+    const ag = ctx.ag;
+    const comDado = [];
+    ctx.feicoes.features.forEach(function (f) { if (f._ag && !f._ag.suprimido) comDado.push(f); });
+    comDado.sort(function (a, b) { return b._v - a._v; });
+
+    host.appendChild(U.statline([
+      { k: 'Registros', v: MI.fmt.int(rows.length) },
+      { k: ctx.nivel === 'brasil' ? 'UFs com registro' : 'Municípios com registro', v: MI.fmt.int(comDado.length) },
+      ag.gruposSuprimidos ? { k: 'Suprimidos', v: MI.fmt.int(ag.suprimidos) } : null,
+      ctx.nUnidades ? { k: 'Unidades', v: MI.fmt.int(ctx.nUnidades) } : null
+    ].filter(Boolean)));
+
+    if (ctx.nivel === 'municipio') {
+      if (MI.store.has('_bairro')) {
+        const d = MI.privacy.guardDist(S.dist(rows, '_bairro', { limit: 14 }));
+        host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Bairros' }));
+        host.appendChild(el('div', { class: 'geo__lista' }, d.map(function (e) {
+          return el('button', {
+            class: 'geo__item' + (e.suppressed ? ' is-inerte' : ''), type: 'button',
+            onclick: e.suppressed ? null : function () { MI.app.toggleCatValue('_bairro', e.label); }
+          }, [
+            el('span', { class: 'geo__item-nome', text: e.label }),
+            el('span', { class: 'geo__item-v', text: MI.fmt.int(e.value) })
+          ]);
+        })));
+      } else {
+        host.appendChild(el('p', { class: 'geo__painel-txt', text: 'A base não traz bairro, então a granularidade termina no município.' }));
+      }
+      return;
+    }
+
+    host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Ranking por ' + ctx.metrica.rotulo.toLowerCase() }));
+    host.appendChild(el('div', { class: 'geo__lista' }, comDado.slice(0, 30).map(function (f, i) {
+      const prop = ctx.max ? f._v / ctx.max : 0;
+      return el('button', {
+        class: 'geo__item', type: 'button',
+        onclick: function () {
+          MI.geoMap.enquadrar(f.properties.caixa);
+          ctx.aoSelecionar(ctx.chave(f), f);
+        }
+      }, [
+        el('span', { class: 'geo__item-pos', text: String(i + 1) }),
+        el('span', { class: 'geo__item-nome', text: f.properties.nome }),
+        el('span', { class: 'geo__item-v', text: ctx.metrica.fmt(f._v) }),
+        el('i', { class: 'geo__item-barra', style: 'width:' + Math.round(prop * 100) + '%' })
+      ]);
+    })));
+
+    /* nomes que não encontram geometria: sumir do mapa não pode virar sumir
+       da análise */
+    if (ctx.nivel === 'uf') {
+      const idx = MI.geo.indiceMunicipios(uf);
+      const fora = MI.privacy.guardDist(S.dist(rows, '_cidade', {}))
+        .filter(function (e) { return !e.suppressed && !e.isOther && !idx[MI.slug(e.label)]; });
+      if (fora.length) {
+        host.appendChild(el('div', { class: 'geo__painel-sec', text: 'Fora do mapa' }));
+        host.appendChild(el('p', { class: 'geo__painel-txt', text: MI.fmt.int(fora.length) + ' nomes de cidade não batem com a malha do IBGE. Continuam nos números; só não têm posição.' }));
+        host.appendChild(el('div', { class: 'geo__lista' }, fora.slice(0, 10).map(function (e) {
+          return el('div', { class: 'geo__item is-inerte' }, [
+            el('span', { class: 'geo__item-nome', text: e.label }),
+            el('span', { class: 'geo__item-v', text: MI.fmt.int(e.value) })
+          ]);
+        })));
+      }
+    }
   }
 
   /* UF predominante de cada cidade, em uma passagem só (há homônimos entre estados) */

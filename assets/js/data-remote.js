@@ -25,7 +25,7 @@ window.MI = window.MI || {};
   function cliente() { return MI.auth && MI.auth.client; }
 
   R.disponivel = function () { return !!(MI.auth && MI.auth.autenticado() && MI.auth.org); };
-  R.podePublicar = function () { return R.disponivel() && MI.auth.role === 'smoov_admin'; };
+  R.podePublicar = function () { return !MI.fullData?.active && R.disponivel() && MI.auth.role === 'smoov_admin'; };
 
   /* ---------------- Consulta ---------------- */
   R.ativa = function (kind) {

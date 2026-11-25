@@ -57,6 +57,7 @@ window.MI = window.MI || {};
 
   /* ---------------- Carga ---------------- */
   U.carregar = function () {
+    if (MI.fullData?.active) return Promise.resolve(U.items);
     if (!U.disponivel()) {
       U.items = []; U.fonte = 'nenhuma'; U.carregado = true;
       return Promise.resolve(U.items);

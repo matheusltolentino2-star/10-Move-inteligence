@@ -433,63 +433,58 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .heat__scale { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 11px; color: var(--muted); }
 .heat__ramp { height: 8px; width: 130px; border-radius: 99px; background: linear-gradient(90deg, var(--surface-3), var(--c2), var(--c1)); }
 
-/* ===================== Mapa do Brasil ===================== */
-.mapa-br { position: relative; max-width: 560px; margin: 0 auto; }
-.mapa-br__svg { display: block; width: 100%; height: auto; overflow: visible; }
-.mapa-br__uf {
-  stroke: var(--surface); stroke-width: 2; stroke-linejoin: round;
-  cursor: default; transition: fill .15s, stroke .15s;
-}
-.mapa-br__uf[role="button"] { cursor: pointer; }
-.mapa-br__uf:hover { stroke: var(--text); stroke-width: 3.5; }
-.mapa-br__uf.is-vazio { fill: var(--surface-3); }
-.mapa-br__uf.is-sel { stroke: var(--text); stroke-width: 4.5; }
-.mapa-br__uf:focus-visible { outline: none; stroke: var(--accent-strong); stroke-width: 5; }
-.mapa-br__linha { stroke: var(--border); stroke-width: 1.6; fill: none; }
-.mapa-br__ponto { fill: var(--muted); }
-.mapa-br__rot {
-  font-family: var(--font-display); font-size: 27px; font-weight: 600;
-  text-anchor: middle; pointer-events: none; paint-order: stroke;
-}
-.mapa-br__rot--fora { text-anchor: start; fill: var(--muted); font-size: 26px; }
-.mapa-br__mun { stroke-width: 1; }
-.mapa-br__mun:hover { stroke-width: 2.5; }
-.mapa-br__mun.is-sel { stroke-width: 3; }
-.mapa-br__rot--mun { font-size: 17px; font-weight: 600; }
-/* ===================== Workspace geográfico ===================== */
-:root { --geo-vazio: #e6e2d4; --geo-sup: #d6d1c0; }
-:root:not([data-theme="light"]) { }
+/* ===================== Workspace territorial =====================
+   O mapa é o elemento principal e precisa de janela própria. Na versão
+   anterior ele era um cartão numa página rolável sob um cabeçalho fixo:
+   em tela baixa, parte da área clicável do mapa ficava atrás do cabeçalho.
+   Aqui ele ocupa a altura útil abaixo da barra do aplicativo. */
+:root { --geo-vazio: #e8e4d6; --geo-sup: #d6d1c0; --geo-altura: clamp(460px, calc(100vh - 290px), 820px); }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --geo-vazio: #333d47; --geo-sup: #3c4752; }
+  :root:not([data-theme="light"]) { --geo-vazio: #39434d; --geo-sup: #424d58; }
 }
-:root[data-theme="dark"] { --geo-vazio: #333d47; --geo-sup: #3c4752; }
+:root[data-theme="dark"] { --geo-vazio: #39434d; --geo-sup: #424d58; }
 
 .geo {
   border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden;
   background: var(--surface); display: flex; flex-direction: column;
 }
-.geo:fullscreen { border-radius: 0; height: 100vh; }
+.geo--carregando { padding: 40px 20px; }
 .geo__barra {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); flex-wrap: wrap;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 9px 12px; border-bottom: 1px solid var(--border); background: var(--surface); flex-wrap: wrap;
 }
-.geo__barra-dir { display: flex; align-items: center; gap: 7px; }
-.geo__trilha { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
+.geo__barra-dir { display: flex; align-items: center; gap: 8px; }
+.geo__trilha { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; min-width: 0; }
 .geo__crumb {
-  cursor: pointer; background: none; border: 0; padding: 4px 8px; border-radius: 7px;
-  font-family: var(--font-display); font-size: 12.5px; font-weight: 600; color: var(--muted);
+  cursor: pointer; background: none; border: 0; padding: 5px 9px; border-radius: 7px;
+  font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--muted);
 }
 .geo__crumb:hover { background: var(--surface-3); color: var(--text); }
 .geo__crumb.is-on { color: var(--text); cursor: default; }
 .geo__crumb.is-on:hover { background: none; }
-.geo__crumb-sep { color: var(--faint); font-size: 12px; }
-.geo__campo-busca { position: relative; }
-.geo__busca { width: 190px; }
-.geo__metrica { width: auto; min-width: 150px; }
+.geo__sep { color: var(--faint); font-size: 12px; }
+
+.geo__camadas { display: flex; gap: 4px; }
+.geo__camada-btn {
+  cursor: pointer; border: 1px solid var(--border); background: var(--surface);
+  border-radius: 8px; padding: 6px 11px; font-size: 11.5px; font-weight: 600;
+  font-family: var(--font-display); color: var(--muted); white-space: nowrap;
+}
+.geo__camada-btn:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
+.geo__camada-btn.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.geo__camada-btn:disabled { opacity: .4; cursor: default; }
+
+.geo__campo { position: relative; }
+.geo__busca, .geo__metrica {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 8px; padding: 7px 10px; font-size: 12.5px; font-family: var(--font-body);
+}
+.geo__busca { width: 180px; }
+.geo__busca:focus, .geo__metrica:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .geo__sugestoes {
-  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; min-width: 230px;
+  position: absolute; z-index: 1200; top: calc(100% + 4px); left: 0; min-width: 250px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: var(--shadow-md); overflow: hidden; max-height: 290px; overflow-y: auto;
+  box-shadow: var(--shadow-md); overflow: hidden; max-height: 300px; overflow-y: auto;
 }
 .geo__sug {
   display: flex; justify-content: space-between; gap: 10px; align-items: baseline; width: 100%;
@@ -500,162 +495,89 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .geo__sug small { color: var(--faint); font-size: 11px; white-space: nowrap; }
 .geo__sug.is-vazio { color: var(--faint); cursor: default; }
 
-/* O mapa é o elemento principal e precisa de uma janela própria: sem altura
-   definida, a proporção do Brasil empurra o SVG para mais de mil pixels e a
-   tela vira uma rolagem infinita em vez de um workspace. */
-/* sem flex-basis aqui: num container de coluna, `flex: 1` passa por cima da
-   altura declarada e o SVG volta a esticar pela própria proporção */
-.geo__corpo { display: flex; min-height: 0; height: clamp(430px, 64vh, 780px); }
-.geo:fullscreen .geo__corpo { height: auto; flex: 1 1 auto; }
-.geo__palco { position: relative; flex: 1; min-width: 0; min-height: 0; background: var(--surface-2); }
-.geo__svg { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
-.geo.is-arrastando .geo__svg { cursor: grabbing; }
-.geo:fullscreen .geo__svg { min-height: 0; height: 100%; }
+.geo__corpo { display: flex; min-height: 0; height: var(--geo-altura); }
+.geo__palco { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.geo__mapa { position: absolute; inset: 0; background: var(--surface-2); }
+.leaflet-container { font-family: var(--font-body); background: var(--surface-2); }
+.leaflet-container a { color: var(--c8); }
+.leaflet-control-attribution { font-size: 9.5px; background: rgba(255, 255, 255, .78); }
+.leaflet-bar a {
+  background: var(--surface); color: var(--muted); border-bottom-color: var(--border);
+  font-family: var(--font-display);
+}
+.leaflet-bar a:hover { background: var(--surface-3); color: var(--text); }
+.leaflet-control-scale-line { background: rgba(255, 255, 255, .7); border-color: var(--border); color: var(--muted); }
 
-.geo__f {
-  stroke: var(--surface); stroke-width: 0.9; stroke-linejoin: round;
-  vector-effect: non-scaling-stroke; transition: fill .12s;
+.geo-dica {
+  background: var(--navy-900); color: var(--on-dark); border: 0; border-radius: 8px;
+  padding: 7px 10px; box-shadow: var(--shadow-md); font-size: 11.5px; line-height: 1.45;
 }
-.geo__f[role="button"] { cursor: pointer; }
-.geo__f.is-sem { fill: var(--geo-vazio); }
-.geo__f.is-sup { fill: var(--geo-sup); stroke-dasharray: 2 2; }
-.geo__f.is-hover { stroke: var(--text); stroke-width: 2.2; }
-.geo__f.is-sel { stroke: var(--accent-strong); stroke-width: 3; }
-.geo__f:focus-visible { outline: none; stroke: var(--accent-strong); stroke-width: 3; }
-.geo__rotulos { pointer-events: none; }
-.geo__rot {
-  font-family: var(--font-display); font-size: 12px; font-weight: 600; text-anchor: middle;
-  paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round;
-}
-.geo__rot.is-sel { font-size: 13px; }
-.geo__rot--fora { font-size: 11.5px; fill: var(--text); }
-.geo__camadas { display: flex; gap: 4px; }
-.geo__camada-btn {
-  cursor: pointer; border: 1px solid var(--border); background: var(--surface);
-  border-radius: 8px; padding: 6px 10px; font-size: 11.5px; font-weight: 600;
-  font-family: var(--font-display); color: var(--muted);
-}
-.geo__camada-btn:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
-.geo__camada-btn.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.geo__camada-btn:disabled { opacity: .45; cursor: default; }
-/* própria e franquia são categorias, não intensidades: formas e cores
-   distintas, nunca dois tons da mesma escala do coroplético */
-.geo__unidade { stroke: var(--surface); stroke-width: 1.6; fill: var(--c5); }
-.geo__unidade--propria { fill: var(--c5); }
-.geo__unidade--franquia { fill: var(--c6); }
-.geo__unidade--nao_informado { fill: var(--muted); }
-.geo__unidade.is-aprox { fill: none; stroke: var(--c5); stroke-width: 2.4; }
-.geo__unidade--franquia.is-aprox { stroke: var(--c6); }
-.geo__unidade--nao_informado.is-aprox { stroke: var(--muted); }
-.geo__raio { fill: var(--c5); fill-opacity: .13; stroke: var(--c5); stroke-opacity: .5; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.geo__raio--franquia { fill: var(--c6); stroke: var(--c6); }
-.geo__chamada { stroke: var(--muted); stroke-width: 1; fill: none; opacity: .65; }
-.geo__ponto { fill: var(--text); }
-
-.geo__controles {
-  position: absolute; top: 10px; right: 10px; display: grid; gap: 4px;
-}
-.geo__ctrl {
-  width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--muted); font-size: 15px; font-weight: 600; font-family: var(--font-display);
-  box-shadow: var(--shadow-sm);
-}
-.geo__ctrl:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
-.geo__ctrl:disabled { opacity: .42; cursor: default; }
-.geo__ctrl--fecha { box-shadow: none; }
-
-.geo__tip {
-  position: absolute; z-index: 15; transform: translate(-50%, -100%); pointer-events: none;
-  background: var(--navy-900); color: var(--on-dark); border-radius: 8px; padding: 7px 10px;
-  box-shadow: var(--shadow-md); display: grid; gap: 2px; font-size: 11.5px; max-width: 230px;
-}
-.geo__tip strong { font-size: 12.5px; font-family: var(--font-display); }
+.geo-dica strong { display: block; font-family: var(--font-display); font-size: 12.5px; }
+.geo-dica span { display: block; }
+.geo-dica__u { color: var(--accent); font-weight: 600; }
+.geo-dica::before { border-top-color: var(--navy-900) !important; }
 
 .geo__legenda {
-  position: absolute; left: 10px; bottom: 10px; background: var(--surface);
-  border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
-  box-shadow: var(--shadow-sm); display: grid; gap: 5px; max-width: 250px;
+  position: absolute; left: 12px; bottom: 26px; z-index: 900;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 9px 11px; box-shadow: var(--shadow-sm); display: grid; gap: 6px; max-width: 250px;
 }
-.geo__leg-linha { display: flex; align-items: center; gap: 7px; }
-.geo__ramp { height: 7px; width: 110px; border-radius: 99px; display: block; }
-.geo__leg-v { font-size: 10.5px; color: var(--muted); font-weight: 600; }
-.geo__leg-un-linha, .geo__fonte { font-size: 10px; color: var(--faint); }
-.geo__leg-chaves { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
+.geo__leg-escala { display: flex; align-items: center; gap: 7px; font-size: 10.5px; color: var(--muted); font-weight: 600; }
+.geo__ramp { height: 7px; width: 108px; border-radius: 99px; display: block; }
+.geo__leg-un { font-size: 10px; color: var(--faint); }
+.geo__leg-chaves { display: flex; gap: 9px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
 .geo__chave { display: inline-flex; align-items: center; gap: 4px; }
 .geo__sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-.geo__sw.is-sem { background: var(--geo-vazio); }
+.geo__sw.is-vazio { background: var(--geo-vazio); }
 .geo__sw.is-sup { background: var(--geo-sup); outline: 1px dashed var(--muted); outline-offset: -1px; }
-.geo__sw.is-sel { background: transparent; border: 2px solid var(--accent-strong); }
+.geo__sw.is-propria { background: var(--c5); border-radius: 99px; }
+.geo__sw.is-franquia { background: var(--c6); border-radius: 99px; }
+.geo__sw.is-aprox { background: transparent; border: 2px dashed var(--muted); border-radius: 99px; }
 
 .geo__painel {
-  width: 0; flex: none; overflow: hidden; border-left: 1px solid transparent;
-  background: var(--surface); transition: width .18s;
+  width: 300px; flex: none; border-left: 1px solid var(--border); background: var(--surface);
+  overflow-y: auto; transition: width .18s, border-color .18s;
 }
-.geo.is-com-painel .geo__painel { width: 290px; border-left-color: var(--border); overflow-y: auto; }
-.geo__painel-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px 6px; }
-.geo__painel-topo h4 { margin: 0; font-size: 14px; font-family: var(--font-display); }
+.geo.is-sem-painel .geo__painel { width: 0; border-left-color: transparent; overflow: hidden; }
+.geo__painel-topo {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 12px 4px; position: sticky; top: 0; background: var(--surface);
+}
+.geo__painel-topo h4 { margin: 0; font-size: 14.5px; font-family: var(--font-display); }
+.geo__fechar {
+  width: 26px; height: 26px; display: grid; place-items: center; cursor: pointer; flex: none;
+  background: none; border: 1px solid var(--border); border-radius: 7px; color: var(--muted); font-size: 15px;
+}
+.geo__fechar:hover { background: var(--surface-3); color: var(--text); }
 .geo__painel .statline { padding: 0 12px; }
 .geo__painel-sec {
   padding: 14px 12px 6px; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
   color: var(--faint); font-weight: 700;
 }
+.geo__painel-txt { padding: 2px 12px 8px; font-size: 12px; color: var(--muted); line-height: 1.55; margin: 0; }
 .geo__lista { display: grid; }
 .geo__item {
-  position: relative; display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: baseline;
+  position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline;
   width: 100%; background: none; border: 0; text-align: left; cursor: pointer;
   padding: 7px 12px; font-size: 12px; color: var(--text); font-family: var(--font-body);
 }
 .geo__item:hover { background: var(--surface-3); }
-.geo__item.is-on { background: var(--accent-soft); }
 .geo__item.is-inerte { cursor: default; }
 .geo__item.is-inerte:hover { background: none; }
-.geo__item-pos { color: var(--faint); font-size: 10.5px; font-weight: 700; }
+.geo__item-pos { color: var(--faint); font-size: 10.5px; font-weight: 700; min-width: 16px; }
 .geo__item-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .geo__item-v { color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .geo__item-barra { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent); display: block; }
-.geo__aviso { padding: 0 12px; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
 
-@media (max-width: 860px) {
-  /* Empilhado, o palco precisa de altura própria: como filho de coluna com
-     flex:1 e um SVG de altura 100%, ele colapsava para zero e o mapa sumia
-     deixando só os controles. */
+@media (max-width: 900px) {
+  :root { --geo-altura: clamp(360px, 56vh, 520px); }
   .geo__corpo { flex-direction: column; height: auto; }
-  .geo__palco { flex: none; height: clamp(300px, 46vh, 430px); }
-  /* empilhado, largura zero não tira a altura do painel fechado: sobrava
-     uma faixa branca do tamanho do ranking embaixo do mapa */
-  .geo:not(.is-com-painel) .geo__painel { display: none; }
-  .geo.is-com-painel .geo__painel { width: 100%; max-height: 320px; border-left: 0; border-top: 1px solid var(--border); }
-  .geo__busca { width: 130px; }
-  .geo__metrica { min-width: 118px; }
-  .geo__legenda { max-width: 190px; padding: 6px 8px; }
+  .geo__palco { flex: none; height: var(--geo-altura); }
+  .geo__painel { width: 100%; border-left: 0; border-top: 1px solid var(--border); max-height: 300px; }
+  .geo.is-sem-painel .geo__painel { width: 100%; max-height: 0; border-top-color: transparent; }
+  .geo__busca { width: 128px; }
   .geo__leg-chaves { display: none; }
 }
-
-.trilha { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12.5px; }
-.trilha__item {
-  cursor: pointer; background: none; border: 0; padding: 3px 7px; border-radius: 7px;
-  font-family: var(--font-display); font-size: 12.5px; font-weight: 600; color: var(--muted);
-}
-.trilha__item:hover { background: var(--surface-3); color: var(--text); }
-.trilha__item.is-on { color: var(--text); cursor: default; }
-.trilha__item.is-on:hover { background: none; }
-.trilha__sep { color: var(--faint); }
-/* No celular o mapa inteiro encolhe, e o rótulo encolhe junto. Em unidades
-   do desenho ele precisa crescer para continuar legível na tela pequena. */
-@media (max-width: 760px) {
-  .mapa-br__rot { font-size: 42px; }
-  .mapa-br__rot--fora { font-size: 40px; }
-  .mapa-br__uf { stroke-width: 3; }
-}
-.mapa-br__tip {
-  position: absolute; transform: translate(-50%, -100%);
-  background: var(--navy-900); color: var(--on-dark); font-size: 11px; font-weight: 500;
-  padding: 5px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none;
-  z-index: 5; box-shadow: var(--shadow-md);
-}
-.carto__legend { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; font-size: 11px; color: var(--muted); }
-.carto__ramp { height: 8px; width: 150px; border-radius: 99px; }
 
 /* ===================== Elementos diversos ===================== */
 .btn {

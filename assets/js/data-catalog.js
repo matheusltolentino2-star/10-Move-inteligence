@@ -141,6 +141,7 @@ window.MI = window.MI || {};
     },
 
     save: function () {
+      if (MI.fullData?.active) return Promise.resolve(false);
       return idbSet('catalog', {
         items: C.items, source: C.source, fileName: C.fileName,
         loadedAt: (C.loadedAt || new Date()).toISOString()
