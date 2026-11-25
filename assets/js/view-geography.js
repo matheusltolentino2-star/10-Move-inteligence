@@ -31,8 +31,6 @@ MI.views = MI.views || {};
       /* ---------- Estados ---------- */
       if (st.has('_uf')) {
         const dUf = MI.privacy.guardDist(S.dist(rows, '_uf', {}));
-        const conc = S.concentration(rows, '_uf');
-        const real = dUf.filter(function (e) { return !e.suppressed; });
 
         /* O mapa é a interface de investigação: a profundidade territorial
            sai do próprio filtro da plataforma, não de um estado paralelo.
@@ -50,35 +48,34 @@ MI.views = MI.views || {};
           return Array.from(f.values)[0];
         })();
 
-        root.appendChild(trilha(ufSelecionada, cidadeSelecionada));
+        root.appendChild(U.guarded('geo.uf', function () {
+          return el('div', { style: 'margin-bottom:16px' },
+            workspace(ufSelecionada, cidadeSelecionada, rows));
+        }));
 
-        if (ufSelecionada && st.has('_cidade')) {
-          renderMunicipios(root, ufSelecionada, cidadeSelecionada, rows);
-        }
+        /* A concentração acompanha o nível do mapa. Dentro de um estado,
+           medir dependência "entre UFs" devolve sempre HHI 1,000 e uma
+           unidade — número correto e inútil. O que importa ali é a
+           dependência entre os municípios daquele estado. */
+        const porMunicipio = !!(ufSelecionada && st.has('_cidade'));
+        const campoConc = porMunicipio ? '_cidade' : '_uf';
+        const termo = porMunicipio ? 'municípios' : 'unidades da federação';
+        const termoCurto = porMunicipio ? 'municípios' : 'UFs';
+        const conc = S.concentration(rows, campoConc);
+        const real = MI.privacy.guardDist(S.dist(rows, campoConc, {})).filter(function (e) { return !e.suppressed; });
 
-        root.appendChild(U.section('Unidades da federação', 'Clique em uma unidade no mapa para filtrar toda a plataforma'));
+        root.appendChild(U.section('Concentração', 'Quanto o recorte depende de poucas praças'));
         root.appendChild(el('div', { class: 'grid' }, [
-          U.guarded('geo.uf', function () {
-            return U.card({
-              span: 'c7', title: 'Mapa do Brasil',
-              sub: 'A cor indica o volume de registros em cada unidade da federação',
-              body: MI.geo.mapa(dUf, {
-                selected: st.filters._uf ? Array.from(st.filters._uf.values) : [],
-                onSelect: function (uf) { MI.app.toggleCatValue('_uf', uf); }
-              }),
-              foot: 'Malha oficial do IBGE em projeção cônica equivalente: a área desenhada é proporcional à área real. São 26 estados mais o Distrito Federal.'
-            });
-          }),
           U.guarded('geo.concentracao', function () {
             return U.card({
-              span: 'c5', title: 'Concentração geográfica',
+              span: 'c12', title: 'Concentração geográfica',
               sub: 'Quanto a base depende de poucas praças',
               body: [
                 U.statline([
-                  { k: 'Maior UF', v: real.length ? MI.fmt.pct(conc.top1, 1) : '—' },
-                  { k: 'Top 5 UFs', v: MI.fmt.pct(conc.top5, 1) },
-                  { k: 'Top 10 UFs', v: MI.fmt.pct(conc.top10, 1) },
-                  { k: 'UFs p/ 80%', v: String(conc.n80) },
+                  { k: porMunicipio ? 'Maior município' : 'Maior UF', v: real.length ? MI.fmt.pct(conc.top1, 1) : '—' },
+                  { k: 'Top 5 ' + termoCurto, v: MI.fmt.pct(conc.top5, 1) },
+                  { k: 'Top 10 ' + termoCurto, v: MI.fmt.pct(conc.top10, 1) },
+                  { k: (porMunicipio ? 'Municípios' : 'UFs') + ' p/ 80%', v: String(conc.n80) },
                   { k: 'HHI', v: MI.fmt.dec(conc.hhi, 3) }
                 ]),
                 el('div', { style: 'margin-top:14px' }, U.note(
@@ -86,10 +83,10 @@ MI.views = MI.views || {};
                   [
                     el('strong', { text: conc.hhi > 0.25 ? 'Concentração alta. ' : conc.hhi > 0.15 ? 'Concentração moderada. ' : 'Base distribuída. ' }),
                     'O índice Herfindahl-Hirschman de ' + MI.fmt.dec(conc.hhi, 3) + ' indica que ' +
-                    (conc.hhi > 0.25 ? 'a operação depende fortemente de poucas unidades da federação.'
+                    (conc.hhi > 0.25 ? 'o recorte depende fortemente de poucos ' + termo + '.'
                       : conc.hhi > 0.15 ? 'há dependência relevante das maiores praças.'
-                        : 'nenhuma unidade isolada domina a base.') +
-                    ' ' + conc.n80 + ' de ' + conc.categories + ' unidades da federação cobrem 80% dos registros.'
+                        : 'nenhuma praça isolada domina o recorte.') +
+                    ' ' + conc.n80 + ' de ' + conc.categories + ' ' + termo + ' cobrem 80% dos registros.'
                   ]
                 )),
                 el('div', { style: 'margin-top:14px' }, U.bars(MI.privacy.guardDist(S.dist(rows, '_regiao', { order: MI.geo.REGIOES })), { compact: true }))
@@ -238,38 +235,36 @@ MI.views = MI.views || {};
     }
   };
 
-  /* ================= Drill-down territorial =================
-     A malha municipal chega depois do render, que é síncrono. Este estado
-     guarda em que pé está o carregamento de cada UF para a tela poder dizer
-     "carregando", "falhou" ou desenhar — em vez de piscar vazia. */
+  /* ================= Workspace territorial =================
+     Um componente só para os dois níveis. A malha municipal chega depois do
+     render, que é síncrono, então este estado guarda em que pé está o
+     carregamento de cada UF — para a tela dizer "carregando" ou "falhou" em
+     vez de piscar vazia. */
   const malha = { uf: null, estado: null, erro: null };
 
-  function trilha(uf, cidade) {
+  function workspace(uf, cidade, rows) {
     const st = MI.store;
-    const itens = [];
-    const crumb = function (texto, ativo, aoClicar) {
-      return el('button', {
-        class: 'trilha__item' + (ativo ? ' is-on' : ''), type: 'button',
-        onclick: ativo ? null : aoClicar
-      }, texto);
-    };
-    itens.push(crumb('Brasil', !uf, function () {
-      st.setFilter('_cidade', null);
-      st.setFilter('_uf', null);
-    }));
+    const crumbs = [{
+      rotulo: 'Brasil',
+      aoClicar: uf ? function () { st.setFilter('_cidade', null); st.setFilter('_uf', null); } : null
+    }];
     if (uf) {
-      itens.push(el('span', { class: 'trilha__sep', text: '›' }));
-      itens.push(crumb(MI.UF_NOMES[uf] || uf, !cidade, function () { st.setFilter('_cidade', null); }));
+      crumbs.push({
+        rotulo: MI.UF_NOMES[uf] || uf,
+        aoClicar: cidade ? function () { st.setFilter('_cidade', null); } : null
+      });
     }
-    if (cidade) {
-      itens.push(el('span', { class: 'trilha__sep', text: '›' }));
-      itens.push(crumb(cidade, true, null));
-    }
-    return el('div', { class: 'trilha' }, itens);
-  }
+    if (cidade) crumbs.push({ rotulo: cidade, aoClicar: null });
 
-  function renderMunicipios(root, uf, cidade, rows) {
-    /* carregamento sob demanda: uma UF por vez, nunca o Brasil inteiro */
+    /* nível nacional, ou estado cuja malha ainda não chegou */
+    if (!uf || !st.has('_cidade')) {
+      return MI.geoMap.workspace({
+        nivel: 'brasil', rows: rows, campo: '_uf', crumbs: crumbs,
+        selecionado: uf,
+        onSelect: function (sigla) { MI.app.toggleCatValue('_uf', sigla); }
+      });
+    }
+
     if (!MI.geo.temUf(uf)) {
       if (malha.uf !== uf) {
         malha.uf = uf; malha.estado = 'carregando'; malha.erro = null;
@@ -277,67 +272,34 @@ MI.views = MI.views || {};
           .then(function () { malha.estado = 'pronta'; MI.app.rerender(); })
           .catch(function (e) { malha.estado = 'erro'; malha.erro = e.message; MI.app.rerender(); });
       }
-      root.appendChild(U.section('Municípios de ' + (MI.UF_NOMES[uf] || uf), 'Malha oficial do IBGE, carregada sob demanda'));
-      root.appendChild(el('div', { class: 'grid' }, U.card({
-        span: 'c12',
-        body: malha.estado === 'erro'
-          ? U.note('crit', [el('strong', { text: 'A malha municipal não carregou. ' }), malha.erro || ''])
-          : U.empty('Carregando os municípios de ' + (MI.UF_NOMES[uf] || uf) + '…')
-      })));
-      return;
+      return el('div', { class: 'geo' }, [
+        el('div', { class: 'geo__barra' }, el('div', { class: 'geo__trilha' },
+          crumbs.map(function (c, i) {
+            return el('button', {
+              class: 'geo__crumb' + (c.aoClicar ? '' : ' is-on'), type: 'button', onclick: c.aoClicar || null
+            }, (i ? '› ' : '') + c.rotulo);
+          }))),
+        el('div', { class: 'geo__corpo' }, el('div', { class: 'geo__palco' },
+          malha.estado === 'erro'
+            ? U.note('crit', [el('strong', { text: 'A malha municipal não carregou. ' }), malha.erro || ''])
+            : U.empty('Carregando os municípios de ' + (MI.UF_NOMES[uf] || uf) + '…')))
+      ]);
     }
 
-    const dCid = MI.privacy.guardDist(S.dist(rows, '_cidade', {}));
-    const r = MI.geo.mapaUf(uf, dCid, {
-      selected: cidade ? [cidade] : [],
-      onSelect: function (nome) { MI.app.toggleCatValue('_cidade', nome); }
-    });
-    if (!r || !r.node) return;
+    /* nomes de cidade que não batem com nenhum município da UF: o balanço
+       tem que aparecer, senão sumir do mapa vira sumir da análise */
+    const idx = MI.geo.indiceMunicipios(uf);
+    const naoLocalizados = MI.privacy.guardDist(S.dist(rows, '_cidade', {}))
+      .filter(function (e) { return !e.suppressed && !e.isOther && !idx[MI.slug(e.label)]; });
 
-    root.appendChild(U.section('Municípios de ' + (MI.UF_NOMES[uf] || uf),
-      'Clique em um município para aprofundar o recorte em toda a plataforma'));
-    root.appendChild(el('div', { class: 'grid' }, [
-      U.guarded('geo.uf', function () {
-        return U.card({
-          span: 'c7', title: 'Mapa de ' + (MI.UF_NOMES[uf] || uf),
-          sub: MI.fmt.int(r.comRegistros) + ' de ' + MI.fmt.int(r.municipios) + ' municípios têm registros no recorte',
-          body: r.node,
-          foot: 'Malha oficial do IBGE em projeção cônica equivalente. Os nomes das cidades da planilha são ' +
-            'casados com os municípios por nome normalizado e correspondência exata — nome parecido não é ' +
-            'casado em silêncio.'
-        });
-      }),
-      U.card({
-        span: 'c5', title: 'O que entrou no mapa',
-        sub: 'Toda linha que não vira posição no mapa precisa aparecer em algum lugar',
-        body: [
-          /* O denominador é o recorte inteiro, não só o que sobrou da
-             supressão: dizer "100% de cobertura" escondendo os grupos
-             suprimidos seria contar o que falta como se não existisse. */
-          U.statline([
-            { k: 'Registros no mapa', v: MI.fmt.int(r.localizados) },
-            { k: 'Cobertura do recorte', v: rows.length ? MI.fmt.pct(r.localizados / rows.length, 1) : '—' },
-            { k: 'Suprimidos por k', v: MI.fmt.int(dCid.suppressedCount || 0) },
-            { k: 'Sem cidade preenchida', v: MI.fmt.int(dCid.missing || 0) },
-            { k: 'Nomes não localizados', v: MI.fmt.int(r.naoLocalizados.length) }
-          ]),
-          r.naoLocalizados.length
-            ? el('div', { style: 'margin-top:14px' }, [
-              U.note('warn', [
-                el('strong', { text: 'Cidades que não batem com nenhum município de ' + uf + '. ' }),
-                'Podem ser grafias diferentes, cidade de outro estado no campo errado, ou distrito em vez de município. ' +
-                'Elas continuam nos números da plataforma; só não aparecem no mapa.'
-              ]),
-              el('div', { style: 'margin-top:10px' }, U.table(
-                [{ label: 'Nome na planilha' }, { label: 'Registros', num: true }],
-                r.naoLocalizados.slice(0, 12).map(function (e) {
-                  return { cells: [{ v: e.label }, { v: MI.fmt.int(e.value), num: true }] };
-                })))
-            ])
-            : el('div', { style: 'margin-top:14px' }, U.note('ok', 'Todos os nomes de cidade do recorte foram localizados na malha do IBGE.'))
-        ]
-      })
-    ]));
+    return MI.geoMap.workspace({
+      nivel: 'uf', uf: uf, rows: rows, campo: '_cidade', crumbs: crumbs,
+      selecionado: cidade,
+      naoLocalizados: naoLocalizados,
+      onSelect: function (nome) { MI.app.toggleCatValue('_cidade', nome); },
+      rotuloAprofundar: st.has('_bairro') ? 'Ver bairros' : null,
+      aoAprofundar: st.has('_bairro') ? function () { MI.app.go('geography'); } : null
+    });
   }
 
   /* UF predominante de cada cidade, em uma passagem só (há homônimos entre estados) */

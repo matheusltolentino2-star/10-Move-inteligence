@@ -456,6 +456,162 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .mapa-br__mun:hover { stroke-width: 2.5; }
 .mapa-br__mun.is-sel { stroke-width: 3; }
 .mapa-br__rot--mun { font-size: 17px; font-weight: 600; }
+/* ===================== Workspace geográfico ===================== */
+:root { --geo-vazio: #e6e2d4; --geo-sup: #d6d1c0; }
+:root:not([data-theme="light"]) { }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --geo-vazio: #333d47; --geo-sup: #3c4752; }
+}
+:root[data-theme="dark"] { --geo-vazio: #333d47; --geo-sup: #3c4752; }
+
+.geo {
+  border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden;
+  background: var(--surface); display: flex; flex-direction: column;
+}
+.geo:fullscreen { border-radius: 0; height: 100vh; }
+.geo__barra {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); flex-wrap: wrap;
+}
+.geo__barra-dir { display: flex; align-items: center; gap: 7px; }
+.geo__trilha { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
+.geo__crumb {
+  cursor: pointer; background: none; border: 0; padding: 4px 8px; border-radius: 7px;
+  font-family: var(--font-display); font-size: 12.5px; font-weight: 600; color: var(--muted);
+}
+.geo__crumb:hover { background: var(--surface-3); color: var(--text); }
+.geo__crumb.is-on { color: var(--text); cursor: default; }
+.geo__crumb.is-on:hover { background: none; }
+.geo__crumb-sep { color: var(--faint); font-size: 12px; }
+.geo__campo-busca { position: relative; }
+.geo__busca { width: 190px; }
+.geo__metrica { width: auto; min-width: 150px; }
+.geo__sugestoes {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; min-width: 230px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow-md); overflow: hidden; max-height: 290px; overflow-y: auto;
+}
+.geo__sug {
+  display: flex; justify-content: space-between; gap: 10px; align-items: baseline; width: 100%;
+  background: none; border: 0; text-align: left; cursor: pointer; padding: 8px 11px;
+  font-size: 12.5px; color: var(--text); font-family: var(--font-body);
+}
+.geo__sug:hover { background: var(--surface-3); }
+.geo__sug small { color: var(--faint); font-size: 11px; white-space: nowrap; }
+.geo__sug.is-vazio { color: var(--faint); cursor: default; }
+
+/* O mapa é o elemento principal e precisa de uma janela própria: sem altura
+   definida, a proporção do Brasil empurra o SVG para mais de mil pixels e a
+   tela vira uma rolagem infinita em vez de um workspace. */
+/* sem flex-basis aqui: num container de coluna, `flex: 1` passa por cima da
+   altura declarada e o SVG volta a esticar pela própria proporção */
+.geo__corpo { display: flex; min-height: 0; height: clamp(430px, 64vh, 780px); }
+.geo:fullscreen .geo__corpo { height: auto; flex: 1 1 auto; }
+.geo__palco { position: relative; flex: 1; min-width: 0; min-height: 0; background: var(--surface-2); }
+.geo__svg { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.geo.is-arrastando .geo__svg { cursor: grabbing; }
+.geo:fullscreen .geo__svg { min-height: 0; height: 100%; }
+
+.geo__f {
+  stroke: var(--surface); stroke-width: 0.9; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; transition: fill .12s;
+}
+.geo__f[role="button"] { cursor: pointer; }
+.geo__f.is-sem { fill: var(--geo-vazio); }
+.geo__f.is-sup { fill: var(--geo-sup); stroke-dasharray: 2 2; }
+.geo__f.is-hover { stroke: var(--text); stroke-width: 2.2; }
+.geo__f.is-sel { stroke: var(--accent-strong); stroke-width: 3; }
+.geo__f:focus-visible { outline: none; stroke: var(--accent-strong); stroke-width: 3; }
+.geo__rotulos { pointer-events: none; }
+.geo__rot {
+  font-family: var(--font-display); font-size: 12px; font-weight: 600; text-anchor: middle;
+  paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round;
+}
+.geo__rot.is-sel { font-size: 13px; }
+.geo__rot--fora { font-size: 11.5px; fill: var(--text); }
+.geo__chamada { stroke: var(--muted); stroke-width: 1; fill: none; opacity: .65; }
+.geo__ponto { fill: var(--text); }
+
+.geo__controles {
+  position: absolute; top: 10px; right: 10px; display: grid; gap: 4px;
+}
+.geo__ctrl {
+  width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--muted); font-size: 15px; font-weight: 600; font-family: var(--font-display);
+  box-shadow: var(--shadow-sm);
+}
+.geo__ctrl:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.geo__ctrl:disabled { opacity: .42; cursor: default; }
+.geo__ctrl--fecha { box-shadow: none; }
+
+.geo__tip {
+  position: absolute; z-index: 15; transform: translate(-50%, -100%); pointer-events: none;
+  background: var(--navy-900); color: var(--on-dark); border-radius: 8px; padding: 7px 10px;
+  box-shadow: var(--shadow-md); display: grid; gap: 2px; font-size: 11.5px; max-width: 230px;
+}
+.geo__tip strong { font-size: 12.5px; font-family: var(--font-display); }
+
+.geo__legenda {
+  position: absolute; left: 10px; bottom: 10px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
+  box-shadow: var(--shadow-sm); display: grid; gap: 5px; max-width: 250px;
+}
+.geo__leg-linha { display: flex; align-items: center; gap: 7px; }
+.geo__ramp { height: 7px; width: 110px; border-radius: 99px; display: block; }
+.geo__leg-v { font-size: 10.5px; color: var(--muted); font-weight: 600; }
+.geo__leg-un-linha, .geo__fonte { font-size: 10px; color: var(--faint); }
+.geo__leg-chaves { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
+.geo__chave { display: inline-flex; align-items: center; gap: 4px; }
+.geo__sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.geo__sw.is-sem { background: var(--geo-vazio); }
+.geo__sw.is-sup { background: var(--geo-sup); outline: 1px dashed var(--muted); outline-offset: -1px; }
+.geo__sw.is-sel { background: transparent; border: 2px solid var(--accent-strong); }
+
+.geo__painel {
+  width: 0; flex: none; overflow: hidden; border-left: 1px solid transparent;
+  background: var(--surface); transition: width .18s;
+}
+.geo.is-com-painel .geo__painel { width: 290px; border-left-color: var(--border); overflow-y: auto; }
+.geo__painel-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px 6px; }
+.geo__painel-topo h4 { margin: 0; font-size: 14px; font-family: var(--font-display); }
+.geo__painel .statline { padding: 0 12px; }
+.geo__painel-sec {
+  padding: 14px 12px 6px; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--faint); font-weight: 700;
+}
+.geo__lista { display: grid; }
+.geo__item {
+  position: relative; display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: baseline;
+  width: 100%; background: none; border: 0; text-align: left; cursor: pointer;
+  padding: 7px 12px; font-size: 12px; color: var(--text); font-family: var(--font-body);
+}
+.geo__item:hover { background: var(--surface-3); }
+.geo__item.is-on { background: var(--accent-soft); }
+.geo__item.is-inerte { cursor: default; }
+.geo__item.is-inerte:hover { background: none; }
+.geo__item-pos { color: var(--faint); font-size: 10.5px; font-weight: 700; }
+.geo__item-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.geo__item-v { color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.geo__item-barra { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent); display: block; }
+.geo__aviso { padding: 0 12px; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+@media (max-width: 860px) {
+  /* Empilhado, o palco precisa de altura própria: como filho de coluna com
+     flex:1 e um SVG de altura 100%, ele colapsava para zero e o mapa sumia
+     deixando só os controles. */
+  .geo__corpo { flex-direction: column; height: auto; }
+  .geo__palco { flex: none; height: clamp(300px, 46vh, 430px); }
+  /* empilhado, largura zero não tira a altura do painel fechado: sobrava
+     uma faixa branca do tamanho do ranking embaixo do mapa */
+  .geo:not(.is-com-painel) .geo__painel { display: none; }
+  .geo.is-com-painel .geo__painel { width: 100%; max-height: 320px; border-left: 0; border-top: 1px solid var(--border); }
+  .geo__busca { width: 130px; }
+  .geo__metrica { min-width: 118px; }
+  .geo__legenda { max-width: 190px; padding: 6px 8px; }
+  .geo__leg-chaves { display: none; }
+}
+
 .trilha { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12.5px; }
 .trilha__item {
   cursor: pointer; background: none; border: 0; padding: 3px 7px; border-radius: 7px;
