@@ -92,6 +92,7 @@ MI.views = MI.views || {};
   /* ================= Fontes de dados ================= */
   function renderDados(root) {
     const sub = [
+      { id: 'planilha', label: 'Planilha única', icon: 'upload' },
       { id: 'lote', label: 'Lote completo', icon: 'upload' },
       { id: 'clientes', label: 'Base de clientes', icon: 'users' },
       { id: 'transacoes', label: 'Base de transações', icon: 'spark' },
@@ -108,6 +109,7 @@ MI.views = MI.views || {};
 
     /* Gerenciar o que já está publicado vale mesmo com o lote ligado:
        é justamente onde se desfaz uma importação que deu errado. */
+    if (S.fonte === 'planilha') { MI.importUnicoUI.render(root); return; }
     if (S.fonte === 'bases') {
       MI.basesUI.render(root, { tipos: ['clientes', 'transacoes'], titulo: 'Bases publicadas na plataforma' });
       return;

@@ -982,3 +982,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .geo-cluster.is-grande { background: var(--navy-900); }
 .geo-dica__ibge { color: var(--accent); font-weight: 600; }
 .geo__leg-fonte { font-size: 9.5px; color: var(--faint); line-height: 1.4; }
+
+/* barra de progresso da importação unificada */
+.prog { height: 4px; border-radius: 99px; background: var(--surface-3); overflow: hidden; margin-top: 10px; }
+.prog i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .2s; }
