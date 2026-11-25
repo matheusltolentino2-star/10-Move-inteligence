@@ -971,3 +971,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   max-width: 560px; font-size: 12px; color: var(--muted); line-height: 1.6;
   background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 11px 13px;
 }
+
+/* agrupamento de marcadores e contexto territorial no mapa */
+.geo-cluster {
+  display: grid; place-items: center; border-radius: 99px;
+  background: var(--c5); color: #fff; border: 2.5px solid var(--surface);
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+.geo-cluster.is-grande { background: var(--navy-900); }
+.geo-dica__ibge { color: var(--accent); font-weight: 600; }
+.geo__leg-fonte { font-size: 9.5px; color: var(--faint); line-height: 1.4; }

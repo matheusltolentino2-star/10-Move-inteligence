@@ -44,6 +44,8 @@ window.MI = window.MI || {};
 
   const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
   const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
+  const CLUSTER_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js';
+  const CLUSTER_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css';
 
   /* OpenStreetMap padrão: gratuito, sem chave, atribuição obrigatória — que
      o mapa exibe. A primeira escolha foi o CARTO Positron, cinza e mais
@@ -62,6 +64,13 @@ window.MI = window.MI || {};
   };
 
   const BRASIL = [[-33.9, -74.0], [5.3, -34.0]];
+
+  const COD_UF = {
+    '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO',
+    '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL',
+    '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP',
+    '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF'
+  };
 
   /* Preferências de leitura, fora do ciclo de render. */
   const PREF = { metrica: 'clientes', unidades: true, cobertura: false, coropletico: true };
@@ -97,12 +106,91 @@ window.MI = window.MI || {};
       document.head.appendChild(css2);
       const s = document.createElement('script');
       s.src = LEAFLET_JS;
-      s.onload = function () { resolve(window.L); };
+      s.onload = function () {
+        /* o agrupamento é um extra: se falhar, o mapa segue com marcadores
+           soltos em vez de não abrir */
+        const c1 = document.createElement('link');
+        c1.rel = 'stylesheet'; c1.href = CLUSTER_CSS;
+        document.head.appendChild(c1);
+        const c2 = document.createElement('script');
+        c2.src = CLUSTER_JS;
+        c2.onload = function () { resolve(window.L); };
+        c2.onerror = function () { console.warn('Agrupamento de marcadores indisponível.'); resolve(window.L); };
+        document.head.appendChild(c2);
+      };
       s.onerror = function () { reject(new Error('Não foi possível carregar a biblioteca de mapas.')); };
       document.head.appendChild(s);
     });
     return carregandoLib;
   };
+
+  /* ---------------- Contexto territorial ----------------
+     População, densidade e renda do IBGE. São atributos do TERRITÓRIO, não
+     dos clientes da Smoov que moram nele — a dica e a legenda dizem isso,
+     porque atribuir a renda média do município a um cliente seria inventar
+     o dado. Carrega sob demanda: 283 KB que só quem liga a camada paga. */
+  let carregandoCtx = null;
+  W.carregarContexto = function () {
+    if (MI.CONTEXTO_MUN) return Promise.resolve(MI.CONTEXTO_MUN);
+    if (carregandoCtx) return carregandoCtx;
+    carregandoCtx = new Promise(function (resolve, reject) {
+      const v = (function () {
+        try {
+          const t = document.querySelector('script[src*="core.js?v="]');
+          return t ? (t.getAttribute('src').split('?v=')[1] || '') : '';
+        } catch (e) { return ''; }
+      })();
+      const s2 = document.createElement('script');
+      s2.src = 'assets/geo/contexto-municipios.js' + (v ? '?v=' + v : '');
+      s2.onload = function () { MI.CONTEXTO_MUN ? resolve(MI.CONTEXTO_MUN) : reject(new Error('Contexto vazio.')); };
+      s2.onerror = function () { reject(new Error('Não foi possível carregar o contexto territorial.')); };
+      document.head.appendChild(s2);
+    }).catch(function (e) { carregandoCtx = null; throw e; });
+    return carregandoCtx;
+  };
+
+  /* Agregado por UF, somado a partir dos municípios: população soma,
+     densidade é razão de somas, e renda é média ponderada pela população —
+     média simples entre municípios daria o mesmo peso a uma capital e a um
+     vilarejo. */
+  function contextoPorUf() {
+    const C = MI.CONTEXTO_MUN;
+    if (!C) return null;
+    if (C._porUf) return C._porUf;
+    const acc = {};
+    Object.keys(C.dados).forEach(function (cod) {
+      const d = C.dados[cod];
+      const uf = COD_UF[cod.slice(0, 2)];
+      if (!uf) return;
+      const a = acc[uf] = acc[uf] || { pop: 0, area: 0, rendaPeso: 0, pesoRenda: 0 };
+      if (d.pop != null) a.pop += d.pop;
+      if (d.pop != null && d.dens) a.area += d.pop / d.dens;
+      if (d.renda != null && d.pop != null) { a.rendaPeso += d.renda * d.pop; a.pesoRenda += d.pop; }
+    });
+    const out = {};
+    Object.keys(acc).forEach(function (uf) {
+      const a = acc[uf];
+      out[uf] = {
+        pop: a.pop,
+        dens: a.area ? a.pop / a.area : null,
+        renda: a.pesoRenda ? a.rendaPeso / a.pesoRenda : null
+      };
+    });
+    C._porUf = out;
+    return out;
+  }
+
+  /* Valor de contexto de uma feição, seja UF ou município. */
+  function valorContexto(f, campo, nivel) {
+    if (!MI.CONTEXTO_MUN) return null;
+    if (nivel === 'brasil') {
+      const t = contextoPorUf();
+      const d = t && t[f.properties.uf];
+      return d ? d[campo] : null;
+    }
+    const d = MI.CONTEXTO_MUN.dados[String(f.properties.cod)];
+    return d ? d[campo] : null;
+  }
 
   /* ---------------- Métricas e agregação ---------------- */
   function metricas() {
@@ -118,6 +206,20 @@ window.MI = window.MI || {};
     if (st.has('_valor')) m.push({
       id: 'ticket', rotulo: 'Ticket médio', unidade: 'R$ por cliente',
       valor: function (a) { return a.comValor ? a.valor / a.comValor : 0; }, fmt: function (v) { return MI.fmt.money(v); }
+    });
+    /* Contexto do território, separado das métricas de cliente pelo rótulo
+       e pela origem — não se mistura dado da Smoov com dado do IBGE. */
+    m.push({
+      id: 'populacao', rotulo: 'População (IBGE)', unidade: 'pessoas residentes',
+      territorial: 'pop', fmt: function (v) { return MI.fmt.int(v); }
+    });
+    m.push({
+      id: 'densidade', rotulo: 'Densidade (IBGE)', unidade: 'habitantes por km²',
+      territorial: 'dens', fmt: function (v) { return MI.fmt.dec(v, 1); }
+    });
+    m.push({
+      id: 'renda', rotulo: 'Renda do trabalho (IBGE)', unidade: 'R$ médios por ocupado',
+      territorial: 'renda', fmt: function (v) { return MI.fmt.money(v); }
     });
     return m;
   }
@@ -172,6 +274,14 @@ window.MI = window.MI || {};
 
     seletor.addEventListener('change', function () {
       PREF.metrica = seletor.value;
+      const m = metricas().filter(function (x) { return x.id === PREF.metrica; })[0];
+      if (m && m.territorial && !MI.CONTEXTO_MUN) {
+        seletor.disabled = true;
+        W.carregarContexto()
+          .catch(function (e) { MI.toast(e.message || String(e), 'error'); PREF.metrica = 'clientes'; })
+          .then(function () { seletor.disabled = false; if (M.ctx) W.aplicar(M.ctx); });
+        return;
+      }
       if (M.ctx) W.aplicar(M.ctx);
     });
     busca.addEventListener('input', function () { buscar(); });
@@ -195,7 +305,26 @@ window.MI = window.MI || {};
 
     M.territorio = L.layerGroup([], { pane: 'territorio' }).addTo(mapa);
     M.cobertura = L.layerGroup([], { pane: 'cobertura' }).addTo(mapa);
-    M.unidades = L.layerGroup([], { pane: 'unidades' }).addTo(mapa);
+    /* Agrupar só faz sentido longe: de perto, duas lojas a dois quarteirões
+       uma da outra precisam aparecer separadas, que é justamente quando a
+       sobreposição de cobertura interessa. */
+    M.unidades = L.markerClusterGroup
+      ? L.markerClusterGroup({
+        clusterPane: 'unidades',
+        disableClusteringAtZoom: 12,
+        maxClusterRadius: 48,
+        showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true,
+        iconCreateFunction: function (cluster) {
+          const n = cluster.getChildCount();
+          return L.divIcon({
+            html: '<span>' + n + '</span>',
+            className: 'geo-cluster' + (n > 9 ? ' is-grande' : ''),
+            iconSize: [34, 34]
+          });
+        }
+      }).addTo(mapa)
+      : L.layerGroup([], { pane: 'unidades' }).addTo(mapa);
     M.mapa = mapa;
     M.pronto = true;
     return mapa;
@@ -218,7 +347,10 @@ window.MI = window.MI || {};
   /* ---------------- Território ---------------- */
   function estilo(f, ctx, destaque) {
     const sel = ctx.selecionado && ctx.chave(f) === ctx.selecionado;
-    const a = f._ag, semDado = !a, sup = a && a.suprimido;
+    const terr = ctx.metrica.territorial;
+    const a = f._ag;
+    const semDado = terr ? (f._terr == null) : !a;
+    const sup = !terr && a && a.suprimido;
     let fill;
     if (!PREF.coropletico || semDado) fill = css('--geo-vazio');
     else if (sup) fill = css('--geo-sup');
@@ -235,7 +367,11 @@ window.MI = window.MI || {};
   function dica(f, ctx) {
     const a = f._ag;
     const l = ['<strong>' + esc(f.properties.nome) + '</strong>'];
-    if (!a) l.push('<span>Sem registros no recorte</span>');
+    if (ctx.metrica.territorial) {
+      l.push('<span class="geo-dica__ibge">' + esc(ctx.metrica.rotulo.replace(' (IBGE)', '')) + ': ' +
+        (f._terr == null ? 'sem dado' : ctx.metrica.fmt(f._terr)) + ' · IBGE 2022</span>');
+    }
+    if (!a) l.push('<span>Sem clientes no recorte</span>');
     else if (a.suprimido) l.push('<span>Suprimido: menos de ' + ctx.ag.k + ' registros</span>');
     else {
       l.push('<span>' + MI.fmt.int(a.n) + ' clientes · ' + MI.fmt.pctOf(a.n, ctx.total, 1) + ' do recorte</span>');
@@ -253,11 +389,15 @@ window.MI = window.MI || {};
     M.porChave = {};
     if (!ctx.feicoes) return;
 
+    const terr = ctx.metrica.territorial;
     let max = 0;
     ctx.feicoes.features.forEach(function (f) {
       const a = ctx.ag.por.get(ctx.chave(f));
       f._ag = a || null;
-      f._v = a && !a.suprimido ? ctx.metrica.valor(a) : 0;
+      f._terr = terr ? valorContexto(f, terr, ctx.nivel) : null;
+      /* Numa métrica do IBGE não há supressão a aplicar: é dado público do
+         território, não contagem de cliente. */
+      f._v = terr ? (f._terr || 0) : (a && !a.suprimido ? ctx.metrica.valor(a) : 0);
       if (f._v > max) max = f._v;
     });
     ctx.max = max;
@@ -413,6 +553,13 @@ window.MI = window.MI || {};
         el('span', { text: ctx.metrica.fmt(ctx.max || 0) })
       ]));
       M.legenda.appendChild(el('div', { class: 'geo__leg-un', text: ctx.metrica.rotulo + ' · ' + ctx.metrica.unidade }));
+      if (ctx.metrica.territorial && MI.CONTEXTO_MUN) {
+        /* fonte, data e resolução ficam à vista: é dado de terceiro sobre o
+           território, não medição da Smoov */
+        M.legenda.appendChild(el('div', { class: 'geo__leg-fonte' },
+          MI.CONTEXTO_MUN.fonte + ' · por ' + MI.CONTEXTO_MUN.resolucao +
+          ' · descreve o território, não os clientes'));
+      }
     }
     const chaves = [];
     if (PREF.coropletico) chaves.push(['is-vazio', 'sem registros']);
