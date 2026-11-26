@@ -137,3 +137,32 @@ de poucos quilômetros e não substitui cálculo geodésico.
 
 Nada disso é possível antes de existirem coordenadas reais. Hoje o cadastro
 está pronto para recebê-las.
+
+## Evolução da Geografia em 26/11/2026
+
+- O mapa mantém a navegação por UF e município. Em São Paulo capital, a
+  malha oficial do GeoSampa, simplificada para visualização, aparece conforme o zoom. A ação **Núcleo
+  urbano** tem enquadramento próprio. Faria Lima e Vila Olímpia são referências
+  urbanas na busca. Ruas e pontos de interesse vêm do OpenStreetMap.
+- A cobertura radial usa o raio cadastrado ou 3 km como padrão. O mapa combina
+  os discos geodésicos e conta uma única vez as áreas atendidas por duas ou mais
+  lojas. **Áreas descobertas** recorta a diferença no limite selecionado. O
+  painel mostra a procedência e a precisão das unidades.
+- Clientes com posição residencial válida podem entrar nas contagens de
+  alcance. Compras e faturamento vêm das vendas observadas ou dos campos de
+  consumo identificados na base. O painel aplica agregação territorial e
+  supressão de grupos pequenos. A UI indica a indisponibilidade desses cálculos
+  quando faltam coordenadas.
+- O cadastro organizacional fica no Supabase. O lote nacional sinaliza as
+  unidades simuladas e usa suas coordenadas enquanto o lote estiver ativo na
+  sessão. A planilha de 420 clientes das capturas informa nomes nas vendas,
+  sem endereço ou coordenada de loja. O diagnóstico exibe as pendências.
+
+### Distância viária e tempo
+
+O projeto atual é estático e não tem um provedor ou um motor viário
+configurado. [OpenRouteService](https://giscience.github.io/openrouteservice/hosted-api-restrictions/)
+aceita isócronas por distância ou tempo. Um cenário de 5, 10, 15 ou 20 minutos
+depende de malha atualizada, modal e critérios de circulação. O preparo e a
+capacidade da unidade precisam ser tratados separadamente do tempo de percurso.
+Esses modos aguardam infraestrutura autorizada.

@@ -108,6 +108,7 @@ window.MI = window.MI || {};
       get _valor() { return amount[this.index]/100; }
       get _canal() { return CHANNELS[channels[order[this.index]]]; }
       get _unidade() { return shopList[stores[order[this.index]]].name; }
+      get _unidadeId() { return shopList[stores[order[this.index]]].store_id; }
     }
     function linkedProperties(keys, linkAt) {
       for(const key of keys) Object.defineProperty(Item.prototype,key,{
@@ -570,6 +571,11 @@ window.MI = window.MI || {};
         id:s.store_id,nome:s.name,chave:MI.unidades.chaveDe(s.name),formato:s.ownership==='Própria'?'propria':'franquia',
         municipio:s.city,uf:s.uf,bairro:s.neighborhood,latitude:s.latitude,longitude:s.longitude,
         lat:s.latitude,lng:s.longitude,raio_m:s.raio_m,precisao:'exata',origem:SOURCE,formato_comercial:s.commercial_format,
+        endereco:s.simulated_address || null,ibge_city_code:s.ibge_city_code,
+        delivery_available:s.delivery_available,operational_status:s.operational_status,
+        opening_hour:s.opening_hour,closing_hour:s.closing_hour,
+        production_capacity_items_hour:s.production_capacity_items_hour,
+        service_capacity_orders_hour:s.service_capacity_orders_hour,
         inaugurada_em:s.opening_date,is_synthetic:true
       }));
       return {id:meta.info.get('lote'),file,book,meta,customers,catalog,items:p.items(),units,docs:p.docs,

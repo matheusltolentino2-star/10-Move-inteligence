@@ -21,11 +21,8 @@
 
    BASEMAP E LICENÇA
 
-   Tiles CARTO Positron sobre dados do OpenStreetMap, sem chave e com
-   atribuição obrigatória, exibida no mapa. O cinza claro é deliberado:
-   deixa a cor do dado dominar em vez de competir com ela. Para uso
-   comercial intenso o correto é contratar um provedor; a URL fica em
-   MI.MAPA_TILES para trocar sem tocar no código.
+   Tiles OpenStreetMap com atribuição exibida no mapa. O provedor fica em
+   MI.MAPA_TILES.
 
    O basemap só liga no nível municipal. Nos níveis Brasil e estado ele não
    acrescenta nada e atrapalha a leitura do coroplético.
@@ -73,7 +70,7 @@ window.MI = window.MI || {};
   };
 
   /* Preferências de leitura, fora do ciclo de render. */
-  const PREF = { metrica: 'clientes', unidades: true, cobertura: false, sobreposicao: false, coropletico: true };
+  const PREF = { metrica: 'clientes', coropletico: true };
 
   const M = {
     pronto: false, mapa: null, raiz: null, ctx: null,
@@ -338,34 +335,20 @@ window.MI = window.MI || {};
 
     /* ordem explícita: território embaixo, cobertura no meio, loja por cima */
     mapa.createPane('territorio').style.zIndex = 400;
-    mapa.createPane('cobertura').style.zIndex = 450;
+    const cobertura = mapa.createPane('cobertura');
+    cobertura.style.zIndex = 450;
+    cobertura.style.pointerEvents = 'none';
     mapa.createPane('unidades').style.zIndex = 600;
 
     M.territorio = L.layerGroup([], { pane: 'territorio' }).addTo(mapa);
-    M.cobertura = L.layerGroup([], { pane: 'cobertura' }).addTo(mapa);
-    /* Agrupar só faz sentido longe: de perto, duas lojas a dois quarteirões
-       uma da outra precisam aparecer separadas, que é justamente quando a
-       sobreposição de cobertura interessa. */
-    M.unidades = L.markerClusterGroup
-      ? L.markerClusterGroup({
-        clusterPane: 'unidades',
-        disableClusteringAtZoom: 12,
-        maxClusterRadius: 48,
-        showCoverageOnHover: false,
-        spiderfyOnMaxZoom: true,
-        iconCreateFunction: function (cluster) {
-          const n = cluster.getChildCount();
-          return L.divIcon({
-            html: '<span>' + n + '</span>',
-            className: 'geo-cluster' + (n > 9 ? ' is-grande' : ''),
-            iconSize: [34, 34]
-          });
-        }
-      }).addTo(mapa)
-      : L.layerGroup([], { pane: 'unidades' }).addTo(mapa);
-    mapa.on('zoomend moveend', function () { agendarRotulos(); });
-
     M.mapa = mapa;
+    MI.geoUrban.iniciar(mapa);
+    MI.storeLayers.iniciar(M);
+    mapa.on('moveend', function () {
+      agendarRotulos();
+      MI.geoUrban.movimento(mapa);
+      if (M.ctx && !M.aplicando) MI.storeLayers.desenhar(M.ctx);
+    });
     M.pronto = true;
     return mapa;
   }
@@ -560,118 +543,9 @@ window.MI = window.MI || {};
   }
 
   /* ---------------- Unidades e cobertura ---------------- */
-  function corFormato(f) {
-    return css(f === 'propria' ? '--c5' : f === 'franquia' ? '--c6' : '--muted');
-  }
-
-  function centro(f) {
-    const c = f.properties.caixa;
-    return [(c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2];
-  }
-
-  function posicao(u) {
-    if (u.precisao === 'exata' && u.lat != null && u.lng != null) return [u.lat, u.lng];
-    if (!u.municipio || !u.uf) return null;
-    const f = MI.geo.temUf(u.uf) ? MI.geo.municipioPorNome(u.uf, u.municipio) : null;
-    if (f) return centro(f);
-    if (MI.GEO_BR) {
-      const uf = MI.GEO_BR.features.filter(function (x) { return x.properties.uf === u.uf; })[0];
-      if (uf) return centro(uf);
-    }
-    return null;
-  }
-  W.posicaoDaUnidade = posicao;
-
-  function unidadesVisiveis(ctx) {
-    if (!MI.unidades) return [];
-    return MI.unidades.items.filter(function (u) {
-      if (u.precisao === 'ausente') return false;
-      if (ctx.nivel === 'uf' && u.uf !== ctx.uf) return false;
-      if (ctx.nivel === 'municipio') {
-        if (u.uf !== ctx.uf) return false;
-        if (MI.slug(u.municipio || '') !== MI.slug(ctx.municipio || '')) return false;
-      }
-      return true;
-    });
-  }
-
-  function desenharUnidades(ctx) {
-    const L = window.L;
-    M.unidades.clearLayers();
-    M.cobertura.clearLayers();
-    const lista = unidadesVisiveis(ctx);
-
-    lista.forEach(function (u) {
-      const pos = posicao(u);
-      if (!pos) return;
-      const exata = u.precisao === 'exata';
-
-      /* Raio geográfico de verdade: L.circle recebe metros e o Leaflet
-         projeta. Só para unidade com coordenada — 3 km em volta do centro
-         de um município não medem nada. */
-      if (PREF.cobertura && exata) {
-        L.circle(pos, {
-          pane: 'cobertura', radius: u.raio_m || 3000,
-          color: corFormato(u.formato), weight: 1, opacity: 0.55,
-          fillColor: corFormato(u.formato), fillOpacity: 0.1
-        }).addTo(M.cobertura);
-      }
-      if (!PREF.unidades) return;
-
-      const marca = L.circleMarker(pos, {
-        pane: 'unidades', radius: 7,
-        color: css('--surface'), weight: 2.5,
-        fillColor: corFormato(u.formato), fillOpacity: exata ? 1 : 0.4,
-        dashArray: exata ? null : '3 2'
-      });
-      marca.bindTooltip(
-        '<strong>' + esc(u.nome) + '</strong>' +
-        '<span>' + esc(MI.unidades.rotuloFormato(u.formato)) + '</span>' +
-        '<span>' + esc(MI.unidades.rotuloPrecisao(u.precisao)) + '</span>' +
-        (u.municipio ? '<span>' + esc(u.municipio + (u.uf ? ' · ' + u.uf : '')) + '</span>' : ''),
-        { direction: 'top', opacity: 1, className: 'geo-dica' });
-      marca.on('click', function (ev) {
-        L.DomEvent.stop(ev.originalEvent);
-        if (ctx.aoSelecionarUnidade) ctx.aoSelecionarUnidade(u);
-      });
-      marca.addTo(M.unidades);
-    });
-
-    /* Sobreposição desenhada por cima dos raios: é onde duas lojas disputam
-       o mesmo pedaço de cidade, e é o que a leitura de canibalização
-       procura. Sem coordenada em pelo menos duas unidades, não há o que
-       desenhar — e a camada fica desabilitada dizendo por quê. */
-    if (PREF.sobreposicao && MI.cobertura) {
-      const an = MI.cobertura.analisar({
-        filtro: function (u) {
-          if (ctx.nivel === 'uf' && u.uf !== ctx.uf) return false;
-          if (ctx.nivel === 'municipio') {
-            if (u.uf !== ctx.uf) return false;
-            if (MI.slug(u.municipio || '') !== MI.slug(ctx.municipio || '')) return false;
-          }
-          return true;
-        }
-      });
-      ctx.analiseCobertura = an;
-      an.pares.forEach(function (par) {
-        if (!par.contorno) return;
-        L.polygon(par.contorno, {
-          pane: 'cobertura',
-          color: css('--crit'), weight: 1.2, opacity: 0.75,
-          fillColor: css('--crit'), fillOpacity: 0.22
-        }).bindTooltip(
-          '<strong>Sobreposição</strong>' +
-          '<span>' + esc(par.a.nome) + ' × ' + esc(par.b.nome) + '</span>' +
-          '<span>' + MI.fmt.dec(par.distancia / 1000, 1) + ' km entre elas</span>' +
-          '<span>' + MI.fmt.dec(par.area / 1e6, 1) + ' km² em comum</span>',
-          { direction: 'top', opacity: 1, className: 'geo-dica' }
-        ).addTo(M.cobertura);
-      });
-    } else {
-      ctx.analiseCobertura = null;
-    }
-    return lista.length;
-  }
+  W.posicaoDaUnidade = function (unidade) {
+    return MI.storeCoverage.coordenadas(unidade);
+  };
 
   /* ---------------- Barra, legenda, painel ---------------- */
   function alternador(rotulo, chave, habilitado, titulo) {
@@ -701,16 +575,13 @@ window.MI = window.MI || {};
       M.seletor.appendChild(el('option', { value: m.id, text: m.rotulo, selected: m.id === ctx.metrica.id ? '' : null }));
     });
 
-    const bal = MI.unidades ? MI.unidades.balanco() : { total: 0, exatas: 0 };
+    montarCamadas(ctx);
+  }
+
+  function montarCamadas(ctx) {
     MI.clear(M.camadasEl);
     M.camadasEl.appendChild(alternador('Concentração', 'coropletico', true, 'Pinta o território pela métrica escolhida'));
-    M.camadasEl.appendChild(alternador('Unidades', 'unidades', bal.total > 0,
-      bal.total ? MI.fmt.int(bal.total) + ' unidades cadastradas' : 'Nenhuma unidade cadastrada ainda'));
-    M.camadasEl.appendChild(alternador('Cobertura', 'cobertura', bal.exatas > 0,
-      bal.exatas ? 'Raio operacional das unidades com coordenada' : 'Nenhuma unidade tem coordenada: o raio sairia em volta do centro do município'));
-    M.camadasEl.appendChild(alternador('Sobreposição', 'sobreposicao', bal.exatas > 1,
-      bal.exatas > 1 ? 'Onde dois raios se cruzam — leitura de canibalização'
-        : 'Precisa de pelo menos duas unidades com coordenada'));
+    MI.storeLayers.controles(M.camadasEl, ctx, W.atualizarLojas);
   }
 
   function montarLegenda(ctx) {
@@ -736,10 +607,9 @@ window.MI = window.MI || {};
     const chaves = [];
     if (PREF.coropletico) chaves.push(['is-vazio', 'sem registros']);
     if (ctx.ag.gruposSuprimidos) chaves.push(['is-sup', 'suprimido (< ' + ctx.ag.k + ')']);
-    if (PREF.unidades && ctx.nUnidades) {
-      chaves.push(['is-propria', 'loja própria']);
-      chaves.push(['is-franquia', 'franquia']);
-      chaves.push(['is-aprox', 'posição aproximada']);
+    chaves.push(...MI.storeLayers.chaves(ctx));
+    if (ctx.nivel === 'municipio' && ctx.uf === 'SP' && MI.slug(ctx.municipio) === 'sao_paulo' && MI.geoUrban.distritos()) {
+      M.legenda.appendChild(el('div', {class: 'geo__leg-fonte', text: 'Distritos administrativos · GeoSampa, nov/2026'}));
     }
     if (chaves.length) {
       M.legenda.appendChild(el('div', { class: 'geo__leg-chaves' }, chaves.map(function (c) {
@@ -771,23 +641,39 @@ window.MI = window.MI || {};
     (ctx.feicoes ? ctx.feicoes.features : []).forEach(function (f) {
       if (achados.length < 8 && MI.slug(f.properties.nome).indexOf(q) >= 0) achados.push({ f: f });
     });
-    if (MI.unidades) {
-      MI.unidades.items.forEach(function (u) {
-        if (achados.length < 10 && MI.slug(u.nome).indexOf(q) >= 0) achados.push({ u: u });
-      });
+    MI.geoUrban.buscar(ctx, q).slice(0, 5).forEach(urbano => achados.push({urbano}));
+    for (const u of ctx.unidades) {
+      if (achados.length >= 10) break;
+      if (MI.slug(u.nome).includes(q)) achados.push({u});
     }
     if (!achados.length) {
       M.sugestoes.appendChild(el('div', { class: 'geo__sug is-vazio', text: 'Nada encontrado' }));
     } else {
       achados.forEach(function (a) {
-        const rotulo = a.f ? a.f.properties.nome : a.u.nome;
-        const nota = a.f ? (a.f._ag && !a.f._ag.suprimido ? ctx.metrica.fmt(a.f._v) : 'sem registros') : 'unidade';
+        const rotulo = a.urbano?.nome || a.f?.properties.nome || a.u.nome;
+        const nota = a.urbano?.nota || (a.f ? (a.f._ag && !a.f._ag.suprimido ? ctx.metrica.fmt(a.f._v) : 'sem registros') : 'unidade');
         M.sugestoes.appendChild(el('button', {
           class: 'geo__sug', type: 'button',
           onclick: function () {
             M.busca.value = ''; M.sugestoes.hidden = true;
-            if (a.f) { enquadrar(a.f.properties.caixa); if (ctx.aoSelecionar) ctx.aoSelecionar(ctx.chave(a.f), a.f); }
-            else { const p = posicao(a.u); if (p) M.mapa.setView(p, 14); if (ctx.aoSelecionarUnidade) ctx.aoSelecionarUnidade(a.u); }
+            if (a.urbano?.f) {
+              abrirDistrito(a.urbano.f, window.L.geoJSON(a.urbano.f).getBounds());
+            } else if (a.urbano) {
+              fecharDicas();
+              enquadrar(window.L.latLng(a.urbano.centro).toBounds(1200));
+            } else if (a.f) {
+              if (ctx.nivel === 'municipio') enquadrar(a.f.properties.caixa);
+              else if (ctx.aoSelecionar) ctx.aoSelecionar(ctx.chave(a.f), a.f);
+            } else {
+              const p = W.posicaoDaUnidade(a.u);
+              if (p) {
+                const C = MI.storeCoverage;
+                const raio = C.coordenadas(a.u) && C.elegivel(a.u)
+                  ? C.raio(a.u, MI.storeLayers.raio()) : 600;
+                enquadrar(window.L.latLng(p).toBounds(raio * 2));
+              }
+              if (ctx.aoSelecionarUnidade) ctx.aoSelecionarUnidade(a.u);
+            }
           }
         }, [el('span', { text: rotulo }), el('small', { text: nota })]));
       });
@@ -796,10 +682,41 @@ window.MI = window.MI || {};
   }
 
   function enquadrar(caixa, opcoes) {
-    if (!M.mapa || !caixa) return;
-    M.mapa.fitBounds(caixa, Object.assign({ padding: [28, 28], animate: true, duration: 0.5 }, opcoes || {}));
+    if (!M.mapa || !caixa) return false;
+    M.mapa.invalidateSize({animate:false});
+    const tamanho = M.mapa.getSize();
+    if (tamanho.x <= 40 || tamanho.y <= 40) return false;
+    const animar = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const padding = Math.min(32, Math.floor(Math.min(tamanho.x, tamanho.y) * 0.065));
+    M.mapa.fitBounds(caixa, Object.assign({padding:[padding,padding], animate:animar, duration:0.45}, opcoes || {}));
+    return true;
   }
   W.enquadrar = enquadrar;
+  function fecharDicas() {
+    M.mapa.eachLayer(layer => {
+      if (layer instanceof window.L.Tooltip && !layer.options.permanent) layer.remove();
+    });
+  }
+
+  W.nucleoDisponivel = function (ctx) {
+    return !!MI.geoUrban.nucleo(M.mapa, ctx);
+  };
+  W.enquadrarNucleo = function (ctx) {
+    if (M.ctx !== ctx) return;
+    fecharDicas();
+    enquadrar(MI.geoUrban.nucleo(M.mapa, ctx));
+  };
+
+  function abrirDistrito(f, caixa) {
+    const ctx = M.ctx;
+    if (ctx?.nivel !== 'municipio') return;
+    fecharDicas();
+    enquadrar(caixa);
+    ctx.aoSelecionarDistrito?.({
+      nome: MI.titleCase(f.properties.nome), codigo: f.properties.codigo,
+      caixa: [[caixa.getSouth(), caixa.getWest()], [caixa.getNorth(), caixa.getEast()]]
+    });
+  }
 
   /* ---------------- Ciclo ---------------- */
 
@@ -811,14 +728,16 @@ window.MI = window.MI || {};
     return M.raiz;
   };
 
+  let pedidoContexto = 0;
   W.iniciar = function (ctx) {
+    const pedido = ++pedidoContexto;
     return W.carregarLib().then(function () {
+      if (pedido !== pedidoContexto) return M;
       if (!M.pronto) {
         criarMapa(window.L);
         M.mapa.setView([-15, -54], 4);
       }
       W.aplicar(ctx);
-      setTimeout(function () { if (M.mapa) M.mapa.invalidateSize(); }, 60);
       return M;
     });
   };
@@ -834,28 +753,48 @@ window.MI = window.MI || {};
 
     /* quantas unidades por território, para a dica e para o painel */
     ctx.unidadesPorChave = {};
-    if (MI.unidades) {
-      MI.unidades.items.forEach(function (u) {
-        if (u.precisao === 'ausente') return;
-        const k = ctx.nivel === 'brasil' ? u.uf : (u.municipio || '');
-        if (!k) return;
-        ctx.unidadesPorChave[k] = (ctx.unidadesPorChave[k] || 0) + 1;
-      });
-    }
+    MI.storeLayers.preparar(ctx);
+    ctx.unidades.forEach(function (u) {
+      if (!MI.storeLayers.territorioVerificado(u)) return;
+      const k = ctx.nivel === 'brasil' ? u.uf : u.municipio;
+      if (k) ctx.unidadesPorChave[k] = (ctx.unidadesPorChave[k] || 0) + 1;
+    });
 
+    const escopo = ctx.nivel + '|' + (ctx.uf || '') + '|' + (ctx.municipio || '');
+    if (escopo !== M.escopo) fecharDicas();
     basemap(ctx.nivel === 'municipio');
     desenharTerritorio(ctx);
-    ctx.nUnidades = desenharUnidades(ctx);
+    MI.geoUrban.aplicar(M.mapa, ctx, abrirDistrito, function () {
+      if (!M.ctx) return;
+      montarLegenda(M.ctx);
+      montarPainel(M.ctx);
+      if (document.activeElement === M.busca) buscar();
+    });
+
+    /* Reenquadramentos automáticos pertencem à troca de território.
+       A geometria é aplicada na mesma passagem que o destino da câmera. */
+    M.aplicando = true;
+    try {
+      if (escopo !== M.escopo && (!ctx.enquadrarEm || enquadrar(ctx.enquadrarEm, {animate:false}))) {
+        M.escopo = escopo;
+      }
+    } finally {
+      M.aplicando = false;
+    }
+    MI.storeLayers.desenhar(ctx);
     montarBarra(ctx);
     montarLegenda(ctx);
     montarPainel(ctx);
+  };
 
-    /* Enquadra só quando o escopo territorial muda. Um filtro qualquer não
-       pode jogar a câmera de volta: quem deu zoom numa região espera
-       continuar nela. */
-    const escopo = ctx.nivel + '|' + (ctx.uf || '') + '|' + (ctx.municipio || '');
-    if (ctx.enquadrarEm && escopo !== M.escopo) enquadrar(ctx.enquadrarEm);
-    M.escopo = escopo;
+  W.atualizarLojas = function () {
+    const ctx = M.ctx;
+    if (!ctx) return;
+    MI.storeLayers.preparar(ctx);
+    MI.storeLayers.desenhar(ctx);
+    montarCamadas(ctx);
+    montarLegenda(ctx);
+    montarPainel(ctx);
   };
 
   W.destacar = function (chave) {

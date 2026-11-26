@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="assets/css/app.css?v=20261125n">
+<link rel="stylesheet" href="assets/css/app.css?v=20261126-geo1">
 
 <!-- Captura de falhas ANTES de qualquer script da aplicação.
      Se um arquivo não carregar ou não for interpretado, nada do app existe —
@@ -183,7 +183,7 @@
 <script src="assets/js/data-privacy.js?v=20261125n"></script>
 <script src="assets/js/data-import.js?v=20261125n"></script>
 <script src="assets/js/data-full-workbook.js?v=20261125-lote4"></script>
-<script src="assets/js/data-full-import.js?v=20261125-lote4"></script>
+<script src="assets/js/data-full-import.js?v=20261126-geo1"></script>
 <script src="assets/js/data-catalog-smoov.js?v=20261125n"></script>
 <script src="assets/js/data-catalog.js?v=20261125n"></script>
 <script src="assets/js/data-transactions.js?v=20261125n"></script>
@@ -191,10 +191,11 @@
 <script src="assets/js/ui-charts.js?v=20261125n"></script>
 <script src="assets/js/ui-components.js?v=20261125n"></script>
 <script src="assets/js/ui-geo.js?v=20261125n"></script>
-<script src="assets/js/ui-geomap.js?v=20261125n"></script>
+<script src="assets/js/geo-urban.js?v=20261126-geo1"></script>
+<script src="assets/js/ui-geomap.js?v=20261126-geo1"></script>
 <script src="assets/js/view-overview.js?v=20261125-full1"></script>
 <script src="assets/js/view-profile.js?v=20261125n"></script>
-<script src="assets/js/view-geography.js?v=20261125-full1"></script>
+<script src="assets/js/view-geography.js?v=20261126-geo1"></script>
 <script src="assets/js/view-behavior.js?v=20261125n"></script>
 <script src="assets/js/view-segmentation.js?v=20261125n"></script>
 <script src="assets/js/view-catalog.js?v=20261125n"></script>
@@ -209,8 +210,13 @@
 <script src="assets/js/view-import-unico.js?v=20261125-lote4"></script>
 <script src="assets/js/auth-supabase.js?v=20261125n"></script>
 <script src="assets/js/data-remote.js?v=20261125n"></script>
-<script src="assets/js/data-units.js?v=20261125n"></script>
+<script src="assets/js/data-units.js?v=20261126-geo1"></script>
 <script src="assets/js/data-cobertura.js?v=20261125n"></script>
+<script src="assets/vendor/polygon-clipping.umd.min.js?v=0.15.7"></script>
+<script src="assets/js/store-coverage.js?v=20261126-geo1"></script>
+<script src="assets/js/data-store-intelligence.js?v=20261126-geo1"></script>
+<script src="assets/js/ui-store-layers.js?v=20261126-geo1"></script>
+<script src="assets/js/view-store-intelligence.js?v=20261126-geo1"></script>
 <script src="assets/js/data-import-unico.js?v=20261125n"></script>
 <script src="assets/js/data-bases.js?v=20261125n"></script>
 <script src="assets/js/app.js?v=20261125n"></script>
@@ -246,8 +252,14 @@
       ['ui-charts.js', function () { return MI.charts; }],
       ['ui-components.js', function () { return MI.ui; }],
       ['ui-geo.js', function () { return MI.geo; }],
+      ['geo-urban.js', function () { return MI.geoUrban; }],
       ['data-units.js', function () { return MI.unidades; }],
       ['data-cobertura.js', function () { return MI.cobertura; }],
+      ['polygon-clipping.umd.min.js', function () { return window.polygonClipping; }],
+      ['store-coverage.js', function () { return MI.storeCoverage; }],
+      ['data-store-intelligence.js', function () { return MI.storeIntelligence; }],
+      ['ui-store-layers.js', function () { return MI.storeLayers; }],
+      ['view-store-intelligence.js', function () { return MI.storePanel; }],
       ['data-import-unico.js', function () { return MI.importUnico; }],
       ['view-import-unico.js', function () { return MI.importUnicoUI; }],
       ['data-bases.js', function () { return MI.bases; }],

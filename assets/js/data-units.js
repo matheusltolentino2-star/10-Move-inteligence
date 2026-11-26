@@ -55,6 +55,58 @@ window.MI = window.MI || {};
 
   U.chaveDe = function (nome) { return MI.slug(String(nome || '').trim()); };
 
+  let mapaCache;
+  U.paraMapa = function () {
+    const tx = MI.tx;
+    if (MI.fullData?.active || !tx?.has() || tx.isDemo()) return U.items;
+    if (mapaCache?.cadastro === U.items && mapaCache.transacoes === tx.items) return mapaCache.resultado;
+
+    const porChave = new Map(U.items.map(u => [U.chaveDe(u.chave || u.nome), u]));
+    const nomes = new Set();
+    for (const item of tx.items) {
+      const nome = item._unidade;
+      if (nome) nomes.add(nome);
+    }
+    for (const nome of nomes) {
+      const chave = U.chaveDe(nome);
+      if (!chave || porChave.has(chave)) continue;
+      porChave.set(chave, {
+        id: 'sessao:' + chave, chave, nome, precisao: 'ausente', formato: 'nao_informado',
+        origem: 'transacoes-sessao'
+      });
+    }
+    const resultado = Array.from(porChave.values());
+    mapaCache = { cadastro: U.items, transacoes: tx.items, resultado };
+    return resultado;
+  };
+
+  U.procedencia = function (u) {
+    if (u.is_synthetic === true || u.origem === 'lote-sintetico' ||
+        /\(simulad[ao]\)\s*$/i.test(u.nome || '')) return 'simulada';
+    return u.is_synthetic === false ? 'real' : 'indefinida';
+  };
+
+  U.diagnostico = function (unidades = U.paraMapa()) {
+    const cadastroRemoto = U.fonte === 'remota' ? new Set(U.items) : new Set();
+    const d = { total: unidades.length, exatas: 0, porMunicipio: 0, pendentes: 0, semPosicao: 0,
+      simuladas: 0, reais: 0, indefinidas: 0, persistidas: 0, daSessao: 0, erro: U.erro || null };
+    for (const u of unidades) {
+      if (MI.storeCoverage?.coordenadas(u)) d.exatas++;
+      else {
+        d.pendentes++;
+        if (u.municipio && u.uf) d.porMunicipio++;
+        else d.semPosicao++;
+      }
+      const natureza = U.procedencia(u);
+      if (natureza === 'simulada') d.simuladas++;
+      else if (natureza === 'real') d.reais++;
+      else d.indefinidas++;
+      if (cadastroRemoto.has(u)) d.persistidas++;
+      else d.daSessao++;
+    }
+    return d;
+  };
+
   /* ---------------- Carga ---------------- */
   U.carregar = function () {
     if (MI.fullData?.active) return Promise.resolve(U.items);
