@@ -154,9 +154,12 @@ está pronto para recebê-las.
   supressão de grupos pequenos. A UI indica a indisponibilidade desses cálculos
   quando faltam coordenadas.
 - O cadastro organizacional fica no Supabase. O lote nacional sinaliza as
-  unidades simuladas e usa suas coordenadas enquanto o lote estiver ativo na
-  sessão. A planilha de 420 clientes das capturas informa nomes nas vendas,
-  sem endereço ou coordenada de loja. O diagnóstico exibe as pendências.
+  unidades simuladas e usa suas coordenadas quando ativo. Para o administrador
+  Smoov autenticado, o Excel sintético validado é salvo na conta e recuperado
+  após recarregar ou entrar novamente. O armazenamento privado só confirma
+  um novo lote quando todos os blocos foram enviados. A planilha de 420
+  clientes das capturas informa nomes nas vendas, sem endereço ou coordenada
+  de loja. O diagnóstico exibe as pendências.
 
 ### Distância viária e tempo
 

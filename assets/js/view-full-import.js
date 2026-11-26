@@ -32,6 +32,8 @@ window.MI = window.MI || {};
   }
   async function selected(file) {
     if(!file || F.busy || F.active)return;
+    const storage=MI.fullBatchStore, conta=storage?.chaveSessao();
+    storage?.cancelar();
     state.error=''; state.message='Lendo metadados do arquivo…'; state.fraction=0;
     const pending=F.prepare(file,p=>{
       state.message=p.phase || 'Validando '+p.sheet+' · '+MI.fmt.int(p.done)+'/'+MI.fmt.int(p.total)+' linhas';
@@ -45,9 +47,11 @@ window.MI = window.MI || {};
       const batch=await pending;
       state.message='Ativando as fontes validadas…'; MI.app.rerender();
       await new Promise(resolve=>setTimeout(resolve,0));
+      if(conta && conta!==storage.chaveSessao())return;
       F.activate(batch);
       state.table='financeiro'; state.skip=0; state.store='';
       MI.toast(MI.fmt.int(batch.stats.customers)+' clientes e '+MI.fmt.int(batch.stats.orders)+' pedidos ativados.','ok');
+      if(conta) void storage.salvar(batch);
     } catch(error) {
       state.error=error.message;
     } finally {
@@ -59,6 +63,22 @@ window.MI = window.MI || {};
     if(MI.app.current!=='settings') MI.app.go('settings');
     if(F.busy || F.active) MI.app.rerender();
     else void selected(file);
+  };
+  function persistencia() {
+    const status=MI.fullBatchStore?.estado;
+    const ocupado=status?.fase==='salvando' || status?.fase==='reabrindo';
+    return MI.el('div',{id:'full-storage-live','aria-live':'polite',hidden:!status?.mensagem},[
+      MI.el('p',{id:'full-storage-label',class:'field__hint',text:status?.mensagem || ''}),
+      ocupado ? MI.el('progress',{id:'full-storage-progress',value:status.progresso,max:1,style:'width:100%'}) : null
+    ]);
+  }
+  F.atualizarPersistencia=function(status,faseMudou) {
+    const host=MI.$('#full-storage-live');
+    if(!host || MI.app.encerrando)return;
+    if(faseMudou) { MI.app.rerender(); return; }
+    const label=MI.$('#full-storage-label'), bar=MI.$('#full-storage-progress');
+    if(label)label.textContent=status.mensagem;
+    if(bar)bar.value=status.progresso;
   };
   function preview(host) {
     const el=MI.el,U=MI.ui,batch=F.active,request=++state.request;
@@ -95,26 +115,35 @@ window.MI = window.MI || {};
     }
     if(state.error)root.appendChild(U.note('crit',['A carga foi recusada. A base ativa foi preservada. ',state.error]));
     const batch=F.active;
+    const storage=MI.fullBatchStore, fase=storage?.estado.fase;
     if(!batch) {
       const file=el('input',{id:'full-import-file',type:'file',accept:'.xlsx',style:'display:none',
         onchange:e=>selected(e.target.files[0])});
       root.appendChild(U.card({span:'c12',title:'Importar lote completo',
-        sub:'Selecione SMOOV_INTELLIGENCE_FULL_DATASET.xlsx para carregar as fontes relacionadas em uma operação.',
+        sub:'Selecione SMOOV_INTELLIGENCE_FULL_DATASET.xlsx para carregar as fontes relacionadas.',
         body:state.message ? [
           el('p',{id:'full-import-progress-label','aria-live':'polite',text:state.message}),
           el('progress',{id:'full-import-progress',value:state.fraction,max:1,style:'width:100%'})
         ] : [
-          U.note('info','O lote simulado fica nesta sessão. Desativar o lote restaura as fontes que estavam abertas.'),
+          U.note('info',storage?.podeSalvar()
+            ? 'O Excel sintético será salvo nesta conta depois de validado.'
+            : 'O lote simulado fica nesta sessão. Entre como administrador Smoov para salvar na conta.'),
+          persistencia(),
           el('div',{style:'margin-top:14px'},[U.btn('Selecionar e importar Excel',{variant:'accent',icon:'upload',
-            disabled:F.busy,onClick:()=>file.click()}),file])
+            disabled:F.busy,onClick:()=>file.click()}),file,
+            storage?.podeSalvar() && ['salvo','erro-reabrir'].includes(fase)
+              ? U.btn('Reabrir lote salvo',{variant:'ghost',onClick:()=>storage.reabrir()}) : null])
         ]}));
       return;
     }
     const s=batch.stats;
     root.appendChild(U.card({span:'c12',title:'SMOOV Nacional · lote simulado ativo',
       sub:batch.file.name+' · '+batch.meta.info.get('inicio')+' a '+batch.meta.info.get('fim'),
-      tools:[U.btn('Desativar lote e restaurar fontes',{onClick:function(){F.remove();MI.app.rerender();}})],
-      body:[U.statline([info('Clientes',MI.fmt.int(s.customers)),info('Municípios',MI.fmt.int(s.cities)),
+      tools:[U.btn(fase==='salvo'?'Desativar nesta sessão':'Desativar lote e restaurar fontes',{
+        disabled:fase==='salvando',onClick:function(){F.remove();MI.app.rerender();}})],
+      body:[persistencia(),fase==='erro-salvar' && storage?.podeSalvar()
+        ? U.btn('Tentar salvar na conta',{onClick:()=>storage.salvar(batch)}) : null,
+        U.statline([info('Clientes',MI.fmt.int(s.customers)),info('Municípios',MI.fmt.int(s.cities)),
         info('Lojas',MI.fmt.int(s.stores)),info('Pedidos',MI.fmt.int(s.orders)),info('Itens vendidos',MI.fmt.int(s.units)),
         info('Receita líquida',MI.fmt.money(s.netCents/100))]),
       el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;margin-top:15px'},[

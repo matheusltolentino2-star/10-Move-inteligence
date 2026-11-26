@@ -79,7 +79,7 @@ window.MI = window.MI || {};
         /* As 120 mil transações demonstrativas ficam para depois da primeira
            tela aparecer. Elas não valem segurar o carregamento, ainda mais em
            celular. */
-        setTimeout(app.carregarTransacoes, 400);
+        setTimeout(app.carregarFontesDaSessao, 400);
       };
 
       /* Rede de segurança: nenhuma espera pode prender a tela de carregamento
@@ -182,7 +182,7 @@ window.MI = window.MI || {};
           })
           .then(function () {
             app.mount();
-            setTimeout(app.carregarTransacoes, 400);
+            setTimeout(app.carregarFontesDaSessao, 400);
           });
       }, 50);
     },
@@ -264,6 +264,8 @@ window.MI = window.MI || {};
       clearTimeout(app.tAviso); clearTimeout(app.tCorte);
       MI.storage.del('ultimaAtividade');
       try {
+        MI.fullBatchStore?.cancelar();
+        MI.fullData?.remove();
         MI.tx.clear();
         st.limpar();
       } catch (e) { console.error('Falha ao limpar a base ao sair:', e); }
@@ -326,9 +328,9 @@ window.MI = window.MI || {};
 
     /* Mesma ordem para as transações: publicada primeiro, demonstrativa depois. */
     carregarTransacoes: function () {
-      if (MI.tx.has()) { app.carregarUnidades(); return; }
+      if (MI.tx.has()) return app.carregarUnidades();
       if (MI.remote && MI.remote.disponivel()) {
-        MI.remote.ativa('transacoes')
+        return MI.remote.ativa('transacoes')
           .then(function (meta) {
             if (!meta) { app.gerarTransacoesDemo(); return; }
             return MI.remote.carregarTransacoes(meta).then(function () {
@@ -341,10 +343,15 @@ window.MI = window.MI || {};
             app.gerarTransacoesDemo();
           })
           .then(function () { app.carregarUnidades(); });
-        return;
       }
       app.gerarTransacoesDemo();
-      app.carregarUnidades();
+      return app.carregarUnidades();
+    },
+
+    carregarFontesDaSessao: async function () {
+      const lotes = MI.fullBatchStore, chave = lotes?.chaveSessao();
+      await app.carregarTransacoes();
+      if (chave && chave === lotes.chaveSessao()) await lotes.reabrir();
     },
 
     /* As unidades vêm depois das transações porque é delas que saem as
@@ -352,7 +359,7 @@ window.MI = window.MI || {};
        ninguém deveria ter que redigitá-lo num cadastro. */
     carregarUnidades: function () {
       if (!MI.unidades || !MI.unidades.disponivel()) return;
-      MI.unidades.carregar()
+      return MI.unidades.carregar()
         .then(function () { return MI.unidades.semear(); })
         .then(function (r) {
           if (r && r.criadas) {
