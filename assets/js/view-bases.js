@@ -40,6 +40,10 @@ window.MI = window.MI || {};
 
     const lista = bases.itens.filter(function (d) { return tipos.indexOf(d.kind) >= 0; });
     const pode = bases.podeEditar();
+    const padrao = MI.fullBatchStore?.temPadrao();
+
+    if (padrao) host.appendChild(U.note('info',
+      'A base padrão da Smoov é o lote nacional simulado. As bases publicadas abaixo ficam disponíveis como fontes de reserva.'));
 
     if (!lista.length) { vazio(host, opts, tipos); return; }
 
@@ -47,9 +51,9 @@ window.MI = window.MI || {};
       span: 'c12',
       title: opts.titulo || 'Bases importadas',
       sub: MI.fmt.int(lista.length) + (lista.length === 1 ? ' base publicada' : ' bases publicadas') +
-        ' · a ativa é a que os painéis estão usando',
+        (padrao ? '' : ' · a ativa é a que os painéis estão usando'),
       tools: pode && opts.aoImportar ? [U.btn('Importar outra', { sm: true, icon: 'upload', onClick: opts.aoImportar })] : null,
-      body: el('div', { class: 'bases' }, lista.map(function (d) { return linha(d, pode); }))
+      body: el('div', { class: 'bases' }, lista.map(function (d) { return linha(d, pode, padrao); }))
     })));
   };
 
@@ -78,7 +82,7 @@ window.MI = window.MI || {};
     })));
   }
 
-  function linha(d, pode) {
+  function linha(d, pode, padrao) {
     const acoes = [];
     if (pode) {
       acoes.push(d.is_active
@@ -89,7 +93,7 @@ window.MI = window.MI || {};
         })
         : U.btn('Ativar', {
           sm: true, variant: 'accent', icon: 'check',
-          title: 'Passa a ser a base que os painéis usam',
+          title: padrao ? 'Passa a ser a fonte de reserva desta categoria' : 'Passa a ser a base que os painéis usam',
           onClick: function () { agir(B().ativar(d), 'Base ativada.'); }
         }));
       acoes.push(U.btn('Renomear', { sm: true, variant: 'ghost', onClick: function () { renomear(d); } }));
@@ -100,7 +104,8 @@ window.MI = window.MI || {};
       el('div', { class: 'base__topo' }, [
         el('div', { class: 'base__id' }, [
           el('h4', { text: d.name }),
-          el('span', { class: 'base__badge ' + (d.is_active ? 'is-ativa' : 'is-inativa'), text: d.is_active ? 'ativa' : 'inativa' }),
+          el('span', { class: 'base__badge ' + (d.is_active ? 'is-ativa' : 'is-inativa'),
+            text: d.is_active ? (padrao ? 'reserva' : 'ativa') : 'inativa' }),
           el('span', { class: 'base__tipo', text: B().rotuloTipo(d.kind) })
         ]),
         acoes.length ? el('div', { class: 'base__acoes' }, acoes) : null

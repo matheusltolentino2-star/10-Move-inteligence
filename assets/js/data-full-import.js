@@ -534,8 +534,9 @@ window.MI = window.MI || {};
     const auth = MI.auth;
     return MI.store.perspective==='smoov' && (!auth?.perfilTravado() || auth.role==='smoov_admin');
   };
-  F.prepare = async function (file, onProgress) {
-    assert(F.canImport(),'Apenas a perspectiva Administrador Smoov pode ativar um lote.');
+  const lotesPadrao = new WeakSet();
+  const podeAbrirPadrao = () => !!(MI.auth?.autenticado() && MI.auth.org?.id);
+  async function preparar(file, onProgress) {
     assert(!F.active && !F.busy,'Desative o lote atual antes de carregar outro.');
     F.busy=true;
     try {
@@ -586,6 +587,18 @@ window.MI = window.MI || {};
     } finally {
       F.busy=false;
     }
+  }
+  F.prepare = async function (file, onProgress) {
+    assert(F.canImport(),'Apenas a perspectiva Administrador Smoov pode ativar um lote.');
+    return preparar(file, onProgress);
+  };
+  F.prepararPadrao = async function (file, onProgress) {
+    assert(podeAbrirPadrao(), 'Entre na conta da Smoov para abrir a base padrão.');
+    const batch = await preparar(file, onProgress);
+    assert(batch.stats.customers===50634 && batch.stats.orders===738426 && batch.stats.stores===43,
+      'A base padrão diverge do lote nacional homologado.');
+    lotesPadrao.add(batch);
+    return batch;
   };
 
   const CATALOG_STATE=['items','source','fileName','loadedAt'];
@@ -593,7 +606,8 @@ window.MI = window.MI || {};
   function fields(o, keys) { return Object.fromEntries(keys.map(k=>[k,o[k]])); }
 
   F.activate = function (batch) {
-    assert(F.canImport() && !F.active,'A sessão mudou ou já existe um lote ativo.');
+    assert((F.canImport() || (lotesPadrao.has(batch) && podeAbrirPadrao())) && !F.active,
+      'A sessão mudou ou já existe um lote ativo.');
     const s=MI.store, c=MI.catalog, t=MI.tx, u=MI.unidades;
     batch.previous={
       store:fields(s,['dataset','rows','filters']), catalog:fields(c,CATALOG_STATE),
