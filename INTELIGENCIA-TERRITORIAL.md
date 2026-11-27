@@ -160,6 +160,10 @@ está pronto para recebê-las.
   um novo lote quando todos os blocos foram enviados. A planilha de 420
   clientes das capturas informa nomes nas vendas, sem endereço ou coordenada
   de loja. O diagnóstico exibe as pendências.
+- O lote nacional homologado é a base padrão da organização Smoov. O acesso
+  exige vínculo com a organização e usa as permissões de cada perfil. Os
+  arquivos pessoais continuam privados. A base publicada anterior pode ser
+  usada como reserva em caso de falha ao abrir o lote nacional.
 
 ### Distância viária e tempo
 

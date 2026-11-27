@@ -298,13 +298,14 @@ window.MI = window.MI || {};
        no carregamento da página quanto logo depois do login. Duas cópias
        disso foi exatamente o que fez a base publicada aparecer só no F5. */
     prepararBase: function (onProgress) {
-      return app.carregarBaseAtiva(onProgress)
+      const legada = app.carregarBaseAtiva(onProgress)
         .catch(function (e) {
           console.error('Base publicada não carregou:', e);
           MI.toast('A base publicada não carregou: ' + (e.message || e), 'error');
           return null;
-        })
-        .then(function (ds) {
+        });
+      return Promise.all([legada, MI.fullBatchStore?.sondarPadrao()])
+        .then(function ([ds]) {
           if (!ds) {
             if (onProgress) onProgress(0.2, 'Gerando base demonstrativa de 80 mil clientes…');
             ds = app.buildDemo();
@@ -562,7 +563,6 @@ window.MI = window.MI || {};
             ? 'Acesso completo à base publicada na plataforma.'
             : 'Acesso completo à base carregada neste navegador.';
 
-      MI.$('#ds-name').textContent = ds ? ds.name : '—';
       app.renderFonteMeta();
       const btnTema = MI.$('#btn-tema');
       if (btnTema) {
@@ -581,9 +581,11 @@ window.MI = window.MI || {};
     renderFonteMeta: function () {
       const label = MI.$('#ds-meta'), ds = st.dataset;
       if (!label || app.encerrando || MI.$('#app')?.classList.contains('is-locked')) return;
-      const status = MI.fullBatchStore?.estado;
-      if (status?.fase === 'reabrindo' || status?.fase === 'salvando') {
-        const acao = status.fase === 'reabrindo' ? 'Reabrindo lote salvo' : 'Salvando lote na conta';
+      const lotes = MI.fullBatchStore, status = lotes?.estado;
+      MI.$('#ds-name').textContent = lotes?.padraoPendente ? 'Base padrão da Smoov' : ds ? ds.name : '—';
+      if (['aguardando-padrao','reabrindo','salvando'].includes(status?.fase)) {
+        const acao = status.fase === 'salvando' ? 'Salvando lote na conta' :
+          lotes.padraoPendente ? 'Carregando base padrão' : 'Reabrindo lote salvo';
         label.textContent = acao + ' · ' + Math.round(status.progresso * 100) + '%';
       } else {
         label.textContent = ds ? MI.fmt.int(ds.rows.length) + ' registros · ' + ds.columns.length + ' colunas' : '';
@@ -636,6 +638,13 @@ window.MI = window.MI || {};
         }
         MI.auth.renderGate(host);
         U.flush();
+        return;
+      }
+      if (MI.fullBatchStore?.padraoPendente && !MI.fullData.active && app.current !== 'settings') {
+        host.appendChild(el('div', { class:'empty' }, [
+          el('h4',{text:'Carregando a base padrão da Smoov'}),
+          el('p',{id:'padrao-status','aria-live':'polite',text:MI.fullBatchStore.estado.mensagem})
+        ]));
         return;
       }
       try {
